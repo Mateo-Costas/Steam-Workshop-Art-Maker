@@ -1,0 +1,20 @@
+# WorkshopArt PRO v3.0 - Dependencias
+
+# === CORE DEPENDENCIES ===
+pillow>=10.0.0
+moviepy>=1.0.3
+opencv-python>=4.8.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+requests>=2.31.0
+tqdm>=4.65.0
+windnd>=1.0.7
+customtkinter>=5.2.0
+
+# === OPCIONAL (auto-upload Steam, uso personal) ===
+# browser_cookie3>=0.19.0  # descomentar si quieres usar el auto-upload desde cookies de Firefox
+
+# === NOTAS ===
+# tkinter: Incluido con Python
+# FFmpeg: Se descarga automaticamente por la app
+# Modelos IA: Se descargan automaticamente por la app
