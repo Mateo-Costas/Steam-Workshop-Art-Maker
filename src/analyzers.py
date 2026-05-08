@@ -1,15 +1,19 @@
 """
-analyzers_AJUSTADO.py - Lógica ajustada para One Piece
+analyzers.py - Análisis de contenido para selección automática de modelo IA
 """
 
+import logging
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 import numpy as np
 import cv2
 from PIL import Image, ImageSequence
 
+logger = logging.getLogger("WorkshopArtPRO.analyzers")
+
+
 class ContentAnalyzer:
-    """Analizador con lógica ajustada para anime vintage como One Piece"""
+    """Analiza el tipo de contenido (anime, gaming, foto) para recomendar el mejor modelo de IA."""
     
     @staticmethod
     def analyze_content(file_path: Path) -> Dict[str, Any]:
@@ -28,7 +32,7 @@ class ContentAnalyzer:
         }
         
         try:
-            print(f"🔍 Analizando (modo ajustado): {file_path.name}")
+            logger.debug(f"Analizando: {file_path.name}")
             
             if file_path.suffix.lower() == '.gif':
                 with Image.open(file_path) as img:
@@ -79,17 +83,16 @@ class ContentAnalyzer:
                     results = ContentAnalyzer._merge_frame_results_adjusted(all_scores)
                 
         except Exception as e:
-            print(f"Error analizando contenido: {e}")
-        
-        # Mostrar resultados detallados
-        print(f"📊 Resultados del análisis ajustado:")
-        print(f"   🎌 Anime Total: {results['anime_score']:.2f}")
-        print(f"   📼 Vintage Anime: {results['vintage_anime_score']:.2f}")
-        print(f"   ✨ Modern Anime: {results['modern_anime_score']:.2f}")
-        print(f"   🎮 Gaming: {results['gaming_score']:.2f}")
-        print(f"   📷 Realistic: {results['realistic_score']:.2f}")
-        print(f"   🎯 Tipo: {results['type']} ({results['confidence']:.0%})")
-        print(f"   🤖 Modelo: {results['recommended_model']}")
+            logger.warning(f"Error analizando contenido: {e}")
+
+        logger.debug(
+            "Analisis: anime=%.2f vintage=%.2f modern=%.2f gaming=%.2f realistic=%.2f "
+            "tipo=%s confianza=%.0%% modelo=%s",
+            results['anime_score'], results['vintage_anime_score'],
+            results['modern_anime_score'], results['gaming_score'],
+            results['realistic_score'], results['type'],
+            results['confidence'], results['recommended_model']
+        )
         
         return results
     
@@ -117,57 +120,56 @@ class ContentAnalyzer:
                 img_array = cv2.cvtColor(img_array, cv2.COLOR_RGBA2RGB)
             h, w, c = img_array.shape
             
-            print(f"   📐 Analizando imagen: {w}x{h}")
-            
+            logger.debug("Analizando imagen: %dx%d", w, h)
+
             # =================================================================
             # INDICADORES DE ANIME EN GENERAL (MÁS PESO)
             # =================================================================
-            
+
             general_anime_score = 0.0
-            
+
             # 1. DETECCIÓN DE PERSONAJES ANIME (SÚPER IMPORTANTE)
             character_score = ContentAnalyzer._detect_anime_characters(img_array)
             general_anime_score += character_score * 0.4
-            print(f"   👥 Personajes anime: {character_score:.3f}")
-            
+
             # 2. ESTILO DE COLORES ANIME (IMPORTANTE)
             anime_colors_score = ContentAnalyzer._detect_anime_color_style(img_array)
             general_anime_score += anime_colors_score * 0.3
-            print(f"   🎨 Estilo de colores: {anime_colors_score:.3f}")
-            
+
             # 3. LÍNEAS Y CONTORNOS ANIME
             anime_lines_score = ContentAnalyzer._detect_anime_line_art(img_array)
             general_anime_score += anime_lines_score * 0.3
-            print(f"   ✏️ Líneas anime: {anime_lines_score:.3f}")
-            
+
+            logger.debug(
+                "Scores: chars=%.3f colors=%.3f lines=%.3f",
+                character_score, anime_colors_score, anime_lines_score
+            )
+
             # =================================================================
             # VINTAGE VS MODERN (MENOR PESO EN LA DECISIÓN FINAL)
             # =================================================================
-            
+
             # Vintage indicators (peso reducido)
             vintage_score = ContentAnalyzer._detect_vintage_quality(img_array) * 0.3
-            print(f"   📼 Calidad vintage: {vintage_score:.3f}")
-            
+
             # Modern indicators (peso reducido)
             modern_score = ContentAnalyzer._detect_modern_quality(img_array) * 0.3
-            print(f"   ✨ Calidad moderna: {modern_score:.3f}")
-            
+
             # =================================================================
             # GAMING Y REALISTIC (COMO ANTES)
             # =================================================================
-            
+
             gaming_score = (
                 ContentAnalyzer._detect_gaming_ui(img_array) * 0.5 +
                 ContentAnalyzer._analyze_contrast_gaming(img_array) * 0.5
             )
-            
+
             realistic_score = (
                 ContentAnalyzer._analyze_natural_noise(img_array) * 0.5 +
                 ContentAnalyzer._analyze_organic_textures(img_array) * 0.5
             )
-            
-            print(f"   🎮 Gaming: {gaming_score:.3f}")
-            print(f"   📷 Realistic: {realistic_score:.3f}")
+
+            logger.debug("Gaming=%.3f realistic=%.3f vintage=%.3f modern=%.3f", gaming_score, realistic_score, vintage_score, modern_score)
             
             # =================================================================
             # LÓGICA DE DECISIÓN AJUSTADA
@@ -178,7 +180,7 @@ class ContentAnalyzer:
             
             # PRIORIDAD 2: Si es anime, ¿qué tipo?
             if is_anime:
-                print(f"   ✅ ANIME DETECTADO (score: {general_anime_score:.3f})")
+                logger.debug("Anime detectado (score=%.3f)", general_anime_score)
                 
                 # Decidir vintage vs modern con lógica más flexible
                 if vintage_score > modern_score or general_anime_score > 0.6:
@@ -198,7 +200,7 @@ class ContentAnalyzer:
                     content_type = "anime/vintage"
                     model = "realesr-animevideov3-x4"
                     final_confidence = min(1.0, general_anime_score * 1.3)
-                    print(f"   🎯 FORZANDO VINTAGE por alta confianza anime")
+                    logger.debug("Forzando anime/vintage por alta confianza")
             
             else:
                 # No es anime claramente
@@ -219,7 +221,7 @@ class ContentAnalyzer:
                         model = "realesr-animevideov3-x4"  # Mejor apuesta para anime
                         characteristics = ["possible_anime", "vintage_fallback"]
                         final_confidence = 0.7  # Confianza moderada
-                        print(f"   🔄 FALLBACK a anime vintage (score mínimo: {general_anime_score:.3f})")
+                        logger.debug("Fallback a anime/vintage (score=%.3f)", general_anime_score)
                     else:
                         content_type = "mixed"
                         model = "realesrgan-x4plus"
@@ -248,7 +250,7 @@ class ContentAnalyzer:
             })
             
         except Exception as e:
-            print(f"Error en análisis ajustado: {e}")
+            logger.warning("Error en análisis de imagen: %s", e)
         
         return results
     
@@ -314,7 +316,7 @@ class ContentAnalyzer:
             return min(1.0, anime_character_score)
             
         except Exception as e:
-            print(f"Error detectando personajes: {e}")
+            logger.debug("Error detectando personajes: %s", e)
             return 0.0
     
     @staticmethod
@@ -363,7 +365,7 @@ class ContentAnalyzer:
             return min(1.0, color_style_score)
             
         except Exception as e:
-            print(f"Error en estilo de colores: {e}")
+            logger.debug("Error en estilo de colores: %s", e)
             return 0.0
     
     @staticmethod
@@ -425,7 +427,7 @@ class ContentAnalyzer:
             return min(1.0, line_art_score)
             
         except Exception as e:
-            print(f"Error en líneas anime: {e}")
+            logger.debug("Error en líneas anime: %s", e)
             return 0.0
     
     @staticmethod
@@ -580,26 +582,25 @@ class ContentAnalyzer:
             "realistic_score": np.mean([s.get("realistic_score", 0) for s in all_scores])
         }
         
-        print(f"📊 Fusión de {len(all_scores)} frames:")
-        print(f"   🎌 Anime promedio: {merged['anime_score']:.3f}")
-        
+        logger.debug("Fusión de %d frames: anime=%.3f", len(all_scores), merged['anime_score'])
+
         # LÓGICA AJUSTADA: Priorizar anime por encima de todo
         if merged["anime_score"] > 0.3:  # Umbral bajo para capturar anime
             if merged["anime_score"] > 0.6:  # Alta confianza = vintage
                 content_type = "anime/vintage"
                 model = "realesr-animevideov3-x4"
                 confidence = merged["anime_score"] * 1.2
-                print(f"   🎯 ALTA CONFIANZA → anime/vintage")
+                logger.debug("Alta confianza -> anime/vintage")
             elif merged["vintage_anime_score"] >= merged["modern_anime_score"]:
                 content_type = "anime/vintage"
                 model = "realesr-animevideov3-x4"
                 confidence = merged["anime_score"] * 1.1
-                print(f"   📼 VINTAGE WINS → anime/vintage")
+                logger.debug("Vintage gana -> anime/vintage")
             else:
                 content_type = "anime/modern"
                 model = "realesrgan-x4plus-anime"
                 confidence = merged["anime_score"]
-                print(f"   ✨ MODERN WINS → anime/modern")
+                logger.debug("Modern gana -> anime/modern")
         else:
             # Fallback normal
             if merged["gaming_score"] > 0.5:
@@ -614,7 +615,7 @@ class ContentAnalyzer:
                 content_type = "anime/vintage_fallback"  # ¡Fallback a anime!
                 model = "realesr-animevideov3-x4"
                 confidence = 0.7
-                print(f"   🔄 FALLBACK → anime/vintage (mejor apuesta)")
+                logger.debug("Fallback -> anime/vintage")
         
         merged.update({
             "type": content_type,

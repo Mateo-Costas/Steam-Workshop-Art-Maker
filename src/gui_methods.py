@@ -12,7 +12,6 @@ from PIL import Image, ImageTk, ImageSequence
 from typing import Optional
 import shutil
 import webbrowser
-import time
 import subprocess
 import platform
 from theme_PRO import Colors, Fonts
@@ -140,6 +139,21 @@ class GUIMethodsMixin:
 
     def _ui_error(self, title, msg):
         self.root.after(0, lambda t=title, m=msg: messagebox.showerror(t, m))
+
+    def _launch_upload_tool(self):
+        import sys
+        import platform
+        base = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent.parent
+        upload_tool_path = base / "upload_tool.py"
+        if not upload_tool_path.exists():
+            messagebox.showerror("Error", "upload_tool.py no encontrado.")
+            return
+        try:
+            flags = {'creationflags': subprocess.CREATE_NO_WINDOW} if platform.system() == 'Windows' else {}
+            subprocess.Popen([sys.executable, str(upload_tool_path)],
+                             cwd=str(upload_tool_path.parent), **flags)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo abrir el Upload Tool:\n{e}")
 
     def update_ui_loop(self):
         """Loop para actualizar UI desde threads"""
@@ -489,8 +503,8 @@ class GUIMethodsMixin:
             elif ext in ('.jpg', '.jpeg', '.png', '.bmp', '.webp'):
                 # Mostrar preview de imagen estatica
                 try:
-                    img = Image.open(self.current_file)
-                    img_preview = img.copy()
+                    with Image.open(self.current_file) as img:
+                        img_preview = img.copy()
                     img_preview.thumbnail((375, 250), Image.Resampling.LANCZOS)
                     photo = ImageTk.PhotoImage(img_preview.convert('RGBA'))
                     preview_label = ctk.CTkLabel(preview_frame, text="", image=photo)
@@ -759,7 +773,8 @@ class GUIMethodsMixin:
                 if is_static_image:
                     # Static image: copy as single frame
                     from PIL import Image as PILImage
-                    img = PILImage.open(self.current_file).convert('RGB')
+                    with PILImage.open(self.current_file) as _img:
+                        img = _img.convert('RGB')
                     frame_path = frames_dir / "frame_000000.png"
                     img.save(frame_path, "PNG")
                     frame_paths = [frame_path]

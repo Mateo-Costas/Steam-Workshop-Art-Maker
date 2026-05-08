@@ -2,6 +2,7 @@
 quality_report.py - Sistema de reportes de calidad antes/después
 """
 
+import logging
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk, ImageDraw, ImageFont
@@ -13,6 +14,8 @@ import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')
 from io import BytesIO
+
+logger = logging.getLogger("WorkshopArtPRO.quality_report")
 
 class QualityReportSystem:
     """Sistema para generar reportes de calidad detallados"""
@@ -26,7 +29,7 @@ class QualityReportSystem:
         """Crear reporte completo de calidad"""
         
         try:
-            print("📊 Generando reporte de calidad...")
+            logger.info("Generando reporte de calidad...")
             
             # Analizar archivo original
             original_metrics = self._analyze_image_quality(original_file)
@@ -51,12 +54,12 @@ class QualityReportSystem:
             }
             
             self.reports.append(report)
-            print("✅ Reporte de calidad generado")
+            logger.info("Reporte de calidad generado")
             
             return report
             
         except Exception as e:
-            print(f"❌ Error generando reporte: {e}")
+            logger.error("Error generando reporte: %s", e)
             return None
     
     def _analyze_image_quality(self, file_path: Path) -> dict:
@@ -165,7 +168,7 @@ class QualityReportSystem:
             return metrics
             
         except Exception as e:
-            print(f"Error analizando calidad: {e}")
+            logger.warning("Error analizando calidad: %s", e)
             return {}
     
     def _calculate_improvements(self, original: dict, processed: dict) -> dict:
@@ -216,7 +219,7 @@ class QualityReportSystem:
             return improvements
             
         except Exception as e:
-            print(f"Error calculando mejoras: {e}")
+            logger.warning("Error calculando mejoras: %s", e)
             return {}
     
     def _calculate_overall_score(self, improvements: dict) -> float:
@@ -318,7 +321,7 @@ class QualityReportSystem:
             return recommendations
             
         except Exception as e:
-            print(f"Error generando recomendaciones: {e}")
+            logger.warning("Error generando recomendaciones: %s", e)
             return []
     
     def show_quality_report_window(self, report: dict, parent_window):
@@ -372,7 +375,7 @@ class QualityReportSystem:
             report_window.geometry(f'{width}x{height}+{x}+{y}')
             
         except Exception as e:
-            print(f"Error mostrando reporte: {e}")
+            logger.error("Error mostrando reporte: %s", e)
     
     def _create_report_header(self, parent, report: dict):
         """Crear header del reporte"""
@@ -432,7 +435,7 @@ class QualityReportSystem:
             self._create_file_info_comparison(comparison_frame, report)
             
         except Exception as e:
-            print(f"Error en comparación visual: {e}")
+            logger.warning("Error en comparacion visual: %s", e)
     
     def _display_image_preview(self, parent, image_path: Path, label: str):
         """Mostrar preview de imagen"""
@@ -626,8 +629,8 @@ class QualityReportSystem:
             buf.seek(0)
             
             # Cargar imagen en Tkinter
-            pil_image = Image.open(buf)
-            photo = ImageTk.PhotoImage(pil_image)
+            with Image.open(buf) as pil_image:
+                photo = ImageTk.PhotoImage(pil_image)
             
             chart_label = ttk.Label(charts_frame, image=photo)
             chart_label.image = photo  # Mantener referencia
@@ -637,7 +640,7 @@ class QualityReportSystem:
             buf.close()
             
         except Exception as e:
-            print(f"Error creando gráficos: {e}")
+            logger.warning("Error creando graficos: %s", e)
             error_label = ttk.Label(parent, text=f"Error generando gráficos: {e}", 
                                    style="Danger.TLabel")
             error_label.pack(pady=20)
@@ -753,7 +756,7 @@ class QualityReportSystem:
                         f.write(f"  Acción: {rec['action']}\n")
                     f.write("\n")
             
-            print(f"✅ Reporte exportado: {filename}")
+            logger.info("Reporte exportado: %s", filename)
             
         except Exception as e:
-            print(f"❌ Error exportando reporte: {e}")
+            logger.error("Error exportando reporte: %s", e)

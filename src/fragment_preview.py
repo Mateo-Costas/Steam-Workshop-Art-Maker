@@ -2,12 +2,14 @@
 fragment_preview.py - Sistema de preview de fragmentos para Steam Workshop
 """
 
+import logging
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import numpy as np
 from pathlib import Path
-import math
+
+logger = logging.getLogger("WorkshopArtPRO.fragment_preview")
 
 class FragmentPreviewSystem:
     """Sistema para previsualizar fragmentos antes de Steam Workshop"""
@@ -20,7 +22,7 @@ class FragmentPreviewSystem:
     def create_fragment_preview(self, gif_path: Path, parent_window):
         """Crear preview de cómo se verá fragmentado el GIF"""
         try:
-            print("👁️ Generando preview de fragmentos...")
+            logger.info("Generando preview de fragmentos...")
             
             # Crear ventana de preview
             self.preview_window = tk.Toplevel(parent_window)
@@ -59,10 +61,10 @@ class FragmentPreviewSystem:
             y = (self.preview_window.winfo_screenheight() // 2) - (height // 2)
             self.preview_window.geometry(f'{width}x{height}+{x}+{y}')
             
-            print("✅ Preview de fragmentos creado")
+            logger.info("Preview de fragmentos creado")
             
         except Exception as e:
-            print(f"❌ Error creando preview: {e}")
+            logger.error("Error creando preview: %s", e)
     
     def _create_preview_header(self, parent, gif_path: Path):
         """Crear header del preview"""
@@ -125,7 +127,7 @@ class FragmentPreviewSystem:
                 return analysis
                 
         except Exception as e:
-            print(f"Error analizando GIF: {e}")
+            logger.warning("Error analizando GIF: %s", e)
             return {}
     
     def _analyze_fragment_content(self, image: Image.Image, fragment_width: int, height: int) -> list:
@@ -296,7 +298,7 @@ class FragmentPreviewSystem:
                 legend_label.pack()
                 
         except Exception as e:
-            print(f"Error creando preview visual: {e}")
+            logger.warning("Error creando preview visual: %s", e)
             error_label = ttk.Label(preview_frame, text=f"Error generando preview: {e}", 
                                    style="Danger.TLabel")
             error_label.pack(pady=20)
@@ -427,7 +429,7 @@ class FragmentPreviewSystem:
     
     def _proceed_with_fragmentation(self, gif_path: Path):
         """Proceder con la fragmentación"""
-        print(f"✂️ Procediendo con fragmentación de {gif_path.name}")
+        logger.info("Procediendo con fragmentacion de %s", gif_path.name)
         self.preview_window.destroy()
         # 🆕 SOLUCIÓN SIMPLE: Usar messagebox para indicar que continúe manualmente
         from tkinter import messagebox
@@ -509,10 +511,10 @@ class FragmentPreviewSystem:
                 f.write("2. Subir las 5 partes a Steam Workshop\n")
                 f.write("3. Aplicar comandos de consola para completar\n")
             
-            print(f"✅ Preview exportado: {filename}")
+            logger.info("Preview exportado: %s", filename)
             
         except Exception as e:
-            print(f"❌ Error exportando preview: {e}")
+            logger.error("Error exportando preview: %s", e)
     
     def _show_steam_help(self):
         """Mostrar ayuda sobre Steam Workshop"""
@@ -617,5 +619,5 @@ class FragmentPreviewSystem:
             return live_preview_frame
             
         except Exception as e:
-            print(f"Error en preview en vivo: {e}")
+            logger.warning("Error en preview en vivo: %s", e)
             return None

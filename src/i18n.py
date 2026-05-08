@@ -539,10 +539,6 @@ ES = {
     "ffmpeg_insufficient_log": "   Mejora FFmpeg insuficiente: +{diff:.2f} MB",
     "ffmpeg_no_strategy_log": "   FFmpeg: ninguna estrategia alcanzo objetivo",
     "ffmpeg_general_error_log": "   Error general FFmpeg: {e}",
-
-    # ---- gui_methods.py  show_help ----
-    "help_window_title": "Ayuda - WorkshopArt PRO",
-    "close_btn": "Cerrar",
 }
 
 EN = {
@@ -1075,10 +1071,6 @@ EN = {
     "ffmpeg_insufficient_log": "   FFmpeg improvement insufficient: +{diff:.2f} MB",
     "ffmpeg_no_strategy_log": "   FFmpeg: no strategy reached target",
     "ffmpeg_general_error_log": "   General FFmpeg error: {e}",
-
-    # ---- gui_methods.py  show_help ----
-    "help_window_title": "Help - WorkshopArt PRO",
-    "close_btn": "Close",
 }
 
 _LANGS = {"ES": ES, "EN": EN}

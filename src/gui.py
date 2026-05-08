@@ -561,25 +561,6 @@ class WorkshopArtGUI(GUIMethodsMixin):
 
         windnd.hook_dropfiles(self.root, func=on_drop)
 
-    # ------------------------------------------------------------------
-    # Compat bridges para que GUIMethodsMixin funcione sin cambios
-    # ------------------------------------------------------------------
-    def _launch_upload_tool(self):
-        import subprocess
-        import sys
-        import platform
-        base = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent.parent
-        upload_tool_path = base / "upload_tool.py"
-        if not upload_tool_path.exists():
-            messagebox.showerror("Error", "upload_tool.py no encontrado.")
-            return
-        try:
-            flags = {'creationflags': subprocess.CREATE_NO_WINDOW} if platform.system() == 'Windows' else {}
-            subprocess.Popen([sys.executable, str(upload_tool_path)],
-                             cwd=str(upload_tool_path.parent), **flags)
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo abrir el Upload Tool:\n{e}")
-
     def _update_system_status_label(self, widget, text, ok):
         color = Colors.SUCCESS if ok else Colors.WARNING
         widget.configure(text=text, text_color=color)

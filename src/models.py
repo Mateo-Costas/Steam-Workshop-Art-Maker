@@ -2,13 +2,15 @@
 models.py - Gestión de modelos de IA (descarga, verificación y selección)
 """
 
-import queue
+import logging
 import zipfile
 import shutil
 import requests
 import sys
 from pathlib import Path
 from typing import List, Dict, Optional, Callable
+
+logger = logging.getLogger("WorkshopArtPRO.models")
 
 class ModelManager:
     """Gestión de descarga, verificación y selección de modelos de IA."""
@@ -320,7 +322,7 @@ class ModelManager:
             if len(available_models) >= 3 and exe_exists:
                 if progress_callback:
                     progress_callback("Ya tienes modelos suficientes", 100)
-                print("✅ Ya tienes modelos suficientes")
+                logger.info("Modelos suficientes ya disponibles")
                 return True
             
             # Crear directorio temporal
@@ -343,9 +345,9 @@ class ModelManager:
                 cugan_ok = self._download_and_extract_complete_package(cugan_package, temp_dir, progress_callback)
                 if cugan_ok:
                     self.cugan_exe_path = self._find_cugan_exe()
-                    print("Real-CUGAN descargado correctamente")
+                    logger.info("Real-CUGAN descargado correctamente")
                 else:
-                    print("Real-CUGAN no se pudo descargar (opcional)")
+                    logger.warning("Real-CUGAN no se pudo descargar (opcional)")
 
             if success:
                 # Verificar instalación
@@ -368,9 +370,9 @@ class ModelManager:
                 result = exe_exists and len(available_models) >= 2
                 
                 if result:
-                    print(f"✅ Descarga exitosa: {len(available_models)} modelos disponibles")
+                    logger.info("Descarga exitosa: %d modelos disponibles", len(available_models))
                 else:
-                    print(f"⚠️ Descarga parcial: exe={exe_exists}, modelos={len(available_models)}")
+                    logger.warning("Descarga parcial: exe=%s modelos=%d", exe_exists, len(available_models))
                 
                 return result
             else:
@@ -379,7 +381,7 @@ class ModelManager:
                 return False
             
         except Exception as e:
-            print(f"Error general descargando: {e}")
+            logger.error("Error general descargando: %s", e)
             if progress_callback:
                 progress_callback(f"Error: {e}", 0)
             return False
@@ -394,16 +396,16 @@ class ModelManager:
                 progress_callback("Conectando al servidor...", 15)
             
             # Verificar que la URL es accesible primero
-            print(f"🔍 Verificando URL: {package['url']}")
+            logger.debug("Verificando URL: %s", package['url'])
             
             # Hacer una petición HEAD primero para verificar
             head_response = requests.head(package['url'], timeout=30)
             if head_response.status_code != 200:
-                print(f"❌ URL no accesible: código {head_response.status_code}")
+                logger.warning("URL no accesible: codigo %d", head_response.status_code)
                 return False
             
             # Descargar archivo con timeout más largo
-            print(f"📥 Iniciando descarga desde GitHub...")
+            logger.info("Iniciando descarga desde GitHub...")
             response = requests.get(package['url'], stream=True, timeout=60)
             response.raise_for_status()
             
@@ -413,7 +415,7 @@ class ModelManager:
             if progress_callback:
                 progress_callback(f"Descargando... 0/{total_size/(1024*1024):.1f} MB", 20)
             
-            print(f"📊 Tamaño total: {total_size/(1024*1024):.1f} MB")
+            logger.info("Tamaño total: %.1f MB", total_size / (1024 * 1024))
             
             with open(zip_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
@@ -428,7 +430,7 @@ class ModelManager:
                                 progress
                             )
             
-            print(f"✅ Descarga completada: {zip_path}")
+            logger.info("Descarga completada: %s", zip_path)
             
             if progress_callback:
                 progress_callback("Extrayendo archivos...", 75)
@@ -441,7 +443,7 @@ class ModelManager:
                 all_files = zip_ref.namelist()
                 total_files = len([f for f in all_files if not f.endswith('/')])
                 
-                print(f"📂 Archivos en ZIP: {total_files}")
+                logger.debug("Archivos en ZIP: %d", total_files)
                 
                 for idx, member in enumerate(all_files):
                     if member.endswith('/'):
@@ -454,13 +456,13 @@ class ModelManager:
                         dest = self.project_dir / filename
                         if progress_callback:
                             progress_callback(f"Extrayendo ejecutable: {filename}", 75 + (idx/total_files)*10)
-                        print(f"📦 Extrayendo ejecutable: {filename}")
+                        logger.debug("Extrayendo ejecutable: %s", filename)
                         extracted_exe = True
                     elif filename.endswith(('.bin', '.param')):
                         dest = self.models_dir / filename
                         if progress_callback:
                             progress_callback(f"Extrayendo modelo: {filename}", 75 + (idx/total_files)*10)
-                        print(f"📦 Extrayendo modelo: {filename}")
+                        logger.debug("Extrayendo modelo: %s", filename)
                         if filename.endswith('.bin'):
                             extracted_models += 1
                     else:
@@ -474,7 +476,7 @@ class ModelManager:
                     with zip_ref.open(member) as source, open(dest, 'wb') as target:
                         target.write(source.read())
                     
-                    print(f"✅ Extraído: {dest}")
+                    logger.debug("Extraido: %s", dest)
             
             # Limpiar zip
             zip_path.unlink()
@@ -482,9 +484,7 @@ class ModelManager:
             if progress_callback:
                 progress_callback("Verificando archivos extraídos...", 85)
             
-            print(f"📊 Resumen extracción:")
-            print(f"   Ejecutable: {'✅' if extracted_exe else '❌'}")
-            print(f"   Modelos: {extracted_models} archivos .bin")
+            logger.info("Extraccion: exe=%s modelos=%d archivos .bin", extracted_exe, extracted_models)
             
             # Verificar que se extrajeron correctamente
             exe_exists = self.check_executable()
@@ -493,19 +493,19 @@ class ModelManager:
             success = exe_exists and len(available_models) > 0
             
             if success:
-                print(f"✅ Extracción exitosa: {len(available_models)} modelos disponibles")
+                logger.info("Extraccion exitosa: %d modelos disponibles", len(available_models))
             else:
-                print(f"❌ Extracción incompleta: exe={exe_exists}, modelos={len(available_models)}")
+                logger.warning("Extraccion incompleta: exe=%s modelos=%d", exe_exists, len(available_models))
             
             return success
             
         except requests.exceptions.RequestException as e:
-            print(f"❌ Error de red descargando: {e}")
+            logger.error("Error de red descargando: %s", e)
             if "404" in str(e):
-                print("💡 La URL puede haber cambiado. Verifica releases de GitHub.")
+                logger.warning("La URL puede haber cambiado. Verifica releases de GitHub.")
             return False
         except Exception as e:
-            print(f"❌ Error descargando paquete completo: {e}")
+            logger.error("Error descargando paquete completo: %s", e)
             return False
     
     def get_model_recommendation(self, content_analysis: Dict) -> str:
@@ -528,7 +528,7 @@ class ModelManager:
         available = self.check_available_models()
         
         if recommended not in available:
-            print(f"⚠️ Modelo recomendado '{recommended}' no disponible")
+            logger.warning("Modelo recomendado '%s' no disponible", recommended)
             
             # Buscar alternativa disponible
             if available:
@@ -538,15 +538,15 @@ class ModelManager:
                     anime_models = [m for m in available if "anime" in m]
                     if anime_models:
                         recommended = anime_models[0]
-                        print(f"🔄 Usando modelo anime alternativo: {recommended}")
+                        logger.info("Usando modelo anime alternativo: %s", recommended)
                     else:
                         recommended = available[0]
-                        print(f"🔄 Usando primer modelo disponible: {recommended}")
+                        logger.info("Usando primer modelo disponible: %s", recommended)
                 else:
                     recommended = available[0]
-                    print(f"🔄 Usando primer modelo disponible: {recommended}")
+                    logger.info("Usando primer modelo disponible: %s", recommended)
             else:
-                print("❌ No hay modelos disponibles")
+                logger.error("No hay modelos disponibles")
                 return "realesrgan-x4plus"  # Fallback por defecto
         
         return recommended

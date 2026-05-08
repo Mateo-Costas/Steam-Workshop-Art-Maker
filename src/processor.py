@@ -3,7 +3,6 @@ processor.py - Procesador principal de imagenes/video para WorkshopArt PRO
 """
 import sys
 import os
-import time
 import shutil
 import platform
 import subprocess
@@ -23,7 +22,7 @@ _NO_WINDOW_FLAGS = {'creationflags': subprocess.CREATE_NO_WINDOW} if platform.sy
 logger = logging.getLogger("WorkshopArtPRO.processor")
 
 class SteamProcessor:
-    """Procesador principal con errores COMPLETAMENTE CORREGIDOS"""
+    """Procesador principal de imágenes, video y GIFs para Steam Workshop."""
     
     def __init__(self, config: Config):
         self.config = config
@@ -383,7 +382,7 @@ class SteamProcessor:
                 progress_callback(f"🚀 Iniciando procesamiento con {mode}...", 20)
             
             logger.info(f"🔧 Ejecutando: {' '.join(cmd)}")
-            print(f"📂 Entrada: {input_dir} ({len(input_frames)} frames)")
+            logger.info(f"📂 Entrada: {input_dir} ({len(input_frames)} frames)")
             logger.info(f"📁 Salida: {output_dir}")
             logger.info(f"🎯 Modelo: {clean_model_name}")
             logger.info(f"⚡ Modo: {'GPU' if use_gpu else 'CPU'}")
@@ -532,10 +531,6 @@ class SteamProcessor:
             
             if not frame_paths:
                 logger.error("❌ Error: Lista de frames vacía")
-                return False
-            
-            if len(frame_paths) == 0:
-                logger.error("❌ Error: No hay frames para procesar")
                 return False
             
             # CORRECCIÓN 2: Verificar que los frames existen
