@@ -433,5 +433,24 @@ def main():
         
         return 1
 
+def run_upload_tool():
+    """Lanzar Upload Tool como ventana independiente (invocado con --upload-tool)."""
+    try:
+        ROOT = Path(__file__).parent.parent if not getattr(sys, 'frozen', False) else Path(sys.executable).parent
+        sys.path.insert(0, str(ROOT / "src"))
+        from upload_tool import UploadApp
+        app = UploadApp()
+        app.mainloop()
+    except Exception as e:
+        import tkinter as _tk
+        from tkinter import messagebox as _mb
+        _r = _tk.Tk(); _r.withdraw()
+        _mb.showerror("Upload Tool Error", str(e))
+        _r.destroy()
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    if "--upload-tool" in sys.argv:
+        sys.exit(run_upload_tool())
+    else:
+        sys.exit(main())

@@ -27,6 +27,8 @@ a = Analysis(
         'gui', 'gui_methods', 'processor', 'models', 'analyzers',
         'config', 'theme_PRO', 'quality_report', 'fragment_preview', 'i18n',
         'customtkinter',
+        'upload_tool', 'steam_uploader',
+        'browser_cookie3',
     ],
     hookspath=[],
     hooksconfig={},

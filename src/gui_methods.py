@@ -143,15 +143,19 @@ class GUIMethodsMixin:
     def _launch_upload_tool(self):
         import sys
         import platform
-        base = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent.parent
-        upload_tool_path = base / "upload_tool.py"
-        if not upload_tool_path.exists():
-            messagebox.showerror("Error", "upload_tool.py no encontrado.")
-            return
         try:
             flags = {'creationflags': subprocess.CREATE_NO_WINDOW} if platform.system() == 'Windows' else {}
-            subprocess.Popen([sys.executable, str(upload_tool_path)],
-                             cwd=str(upload_tool_path.parent), **flags)
+            if getattr(sys, 'frozen', False):
+                # Exe: relanzar el propio exe con flag --upload-tool
+                subprocess.Popen([sys.executable, "--upload-tool"], **flags)
+            else:
+                # Desarrollo: lanzar upload_tool.py con Python
+                upload_tool_path = Path(__file__).parent.parent / "upload_tool.py"
+                if not upload_tool_path.exists():
+                    messagebox.showerror("Error", "upload_tool.py no encontrado.")
+                    return
+                subprocess.Popen([sys.executable, str(upload_tool_path)],
+                                 cwd=str(upload_tool_path.parent), **flags)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo abrir el Upload Tool:\n{e}")
 

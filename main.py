@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WorkshopArt PRO v3.0 - Archivo Principal AUTOCONTENIDO
+WorkshopArt PRO v1.0 - Archivo Principal AUTOCONTENIDO
 Punto de entrada con descarga automática de dependencias
 """
 
@@ -45,7 +45,7 @@ from theme_PRO import ModernThemePro
 def show_download_splash():
     """Mostrar splash screen durante descargas"""
     splash = tk.Tk()
-    splash.title("🎮 WorkshopArt PRO v3.0")
+    splash.title("🎮 WorkshopArt PRO v1.0")
     splash.geometry("600x400")
     splash.configure(bg="#0d1117")
     splash.resizable(False, False)
@@ -57,7 +57,7 @@ def show_download_splash():
     splash.geometry(f"600x400+{x}+{y}")
     
     # Contenido del splash
-    title = tk.Label(splash, text="🎮 WorkshopArt PRO v3.0", 
+    title = tk.Label(splash, text="🎮 WorkshopArt PRO v1.0", 
                     font=('Segoe UI', 24, 'bold'),
                     bg="#0d1117", fg="#58a6ff")
     title.pack(pady=20)
@@ -104,7 +104,7 @@ def check_and_download_dependencies():
     splash, status_label, log_widget, progress = show_download_splash()
     
     try:
-        log_to_splash(log_widget, "🎮 WorkshopArt PRO v3.0 - Inicializando...")
+        log_to_splash(log_widget, "🎮 WorkshopArt PRO v1.0 - Inicializando...")
         log_to_splash(log_widget, "🔍 Verificando sistema...")
         
         # Crear directorios necesarios
@@ -503,7 +503,7 @@ Soluciones:
 def main():
     """Función principal SIMPLIFICADA"""
     try:
-        print("🎮 WorkshopArt PRO v3.0 - Iniciando...")
+        print("🎮 WorkshopArt PRO v1.0 - Iniciando...")
         
         # Solo verificar y descargar dependencias externas
         if not check_and_download_dependencies():
@@ -537,19 +537,35 @@ def main():
             pass
         return 1
 
-if __name__ == "__main__":
+def run_upload_tool():
+    """Lanzar Upload Tool como ventana independiente (invocado con --upload-tool)."""
     try:
-        sys.exit(main())
+        from upload_tool import UploadApp
+        app = UploadApp()
+        app.mainloop()
     except Exception as e:
         import traceback
-        print(f"\n{'='*60}")
-        print(f"ERROR CRITICO: {e}")
-        print(f"{'='*60}")
-        traceback.print_exc()
-        # En modo windowed no hay stdin; si existe, hace pausa.
         try:
-            if sys.stdin and sys.stdin.isatty():
-                input("\nPresiona ENTER para cerrar...")
+            messagebox.showerror("Upload Tool Error", f"{e}\n\n{traceback.format_exc()}")
         except Exception:
-            pass
-        sys.exit(1)
+            print(f"Upload Tool Error: {e}")
+
+
+if __name__ == "__main__":
+    if "--upload-tool" in sys.argv:
+        sys.exit(run_upload_tool())
+    else:
+        try:
+            sys.exit(main())
+        except Exception as e:
+            import traceback
+            print(f"\n{'='*60}")
+            print(f"ERROR CRITICO: {e}")
+            print(f"{'='*60}")
+            traceback.print_exc()
+            try:
+                if sys.stdin and sys.stdin.isatty():
+                    input("\nPresiona ENTER para cerrar...")
+            except Exception:
+                pass
+            sys.exit(1)
