@@ -1,4 +1,4 @@
-# WorkshopArt PRO v3.0
+# WorkshopArt PRO v1.0
 
 <div align="center">
 
@@ -6,7 +6,7 @@
 ![License](https://img.shields.io/badge/License-Proprietary-red)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey?logo=windows)
 ![AI](https://img.shields.io/badge/AI-Real--ESRGAN%20%7C%20Real--CUGAN-orange)
-![Version](https://img.shields.io/badge/Version-3.0-blue)
+![Version](https://img.shields.io/badge/Version-1.0-blue)
 
 **Create stunning animated GIF artwork for every Steam profile showcase format.**
 
@@ -99,7 +99,7 @@ These are placed in the project root and the `models/` directory.
 
 ```bash
 pip install pyinstaller
-pyinstaller WorkshopArt_PRO_v3.0.spec
+pyinstaller WorkshopArt_PRO_v1.0.spec
 ```
 
 The output will be in `dist/WorkshopArtPRO/`. The folder is fully portable — copy it anywhere and run `WorkshopArtPRO.exe`.
@@ -259,7 +259,7 @@ Steam-Workshop-Art-Maker/
 ├── temp/                     # Temporary processing files
 ├── logs/                     # Runtime logs
 ├── main.py                   # PyInstaller entry point (exe build)
-├── WorkshopArt_PRO_v3.0.spec # PyInstaller build spec
+├── WorkshopArt_PRO_v1.0.spec # PyInstaller build spec
 ├── requirements.txt          # Python dependencies
 ├── LICENSE                   # MIT License
 └── README.md

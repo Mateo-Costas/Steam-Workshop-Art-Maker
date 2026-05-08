@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WorkshopArt PRO v3.0 - Archivo Principal AUTOCONTENIDO
+WorkshopArt PRO v1.0 - Archivo Principal AUTOCONTENIDO
 Punto de entrada con descarga automática de dependencias
 """
 
@@ -29,7 +29,7 @@ _NO_WINDOW_FLAGS = {'creationflags': _sp.CREATE_NO_WINDOW} if _pf.system() == 'W
 def show_download_splash():
     """Mostrar splash screen durante descargas"""
     splash = tk.Tk()
-    splash.title("🎮 WorkshopArt PRO v3.0")
+    splash.title("🎮 WorkshopArt PRO v1.0")
     splash.geometry("600x400")
     splash.configure(bg="#0d1117")
     splash.resizable(False, False)
@@ -41,7 +41,7 @@ def show_download_splash():
     splash.geometry(f"600x400+{x}+{y}")
     
     # Contenido del splash
-    title = tk.Label(splash, text="🎮 WorkshopArt PRO v3.0", 
+    title = tk.Label(splash, text="🎮 WorkshopArt PRO v1.0", 
                     font=('Segoe UI', 24, 'bold'),
                     bg="#0d1117", fg="#58a6ff")
     title.pack(pady=20)
@@ -88,7 +88,7 @@ def check_and_download_dependencies():
     splash, status_label, log_widget, progress = show_download_splash()
     
     try:
-        log_to_splash(log_widget, "🎮 WorkshopArt PRO v3.0 - Inicializando...")
+        log_to_splash(log_widget, "🎮 WorkshopArt PRO v1.0 - Inicializando...")
         log_to_splash(log_widget, "🔍 Verificando sistema...")
         
         # Crear directorios necesarios
@@ -406,7 +406,7 @@ Soluciones:
 def main():
     """Función principal SIMPLIFICADA"""
     try:
-        print("🎮 WorkshopArt PRO v3.0 - Iniciando...")
+        print("🎮 WorkshopArt PRO v1.0 - Iniciando...")
         
         # Solo verificar y descargar dependencias externas
         if not check_and_download_dependencies():

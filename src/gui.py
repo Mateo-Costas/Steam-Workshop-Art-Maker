@@ -56,7 +56,7 @@ class WorkshopArtGUI(GUIMethodsMixin):
 
     def __init__(self):
         self.root = ctk.CTk()
-        self.root.title("WorkshopArt PRO v3.0")
+        self.root.title("WorkshopArt PRO v1.0")
         self.root.geometry("1150x750")
         self.root.minsize(960, 650)
 
@@ -147,7 +147,7 @@ class WorkshopArtGUI(GUIMethodsMixin):
         ctk.CTkLabel(sidebar, text="WorkshopArt PRO",
                      font=("Segoe UI", 20, "bold"),
                      text_color=Colors.ACCENT).pack(pady=(25, 2))
-        ctk.CTkLabel(sidebar, text="v3.0",
+        ctk.CTkLabel(sidebar, text="v1.0",
                      font=Fonts.CAPTION,
                      text_color=Colors.TEXT_MUTED).pack(pady=(0, 15))
 

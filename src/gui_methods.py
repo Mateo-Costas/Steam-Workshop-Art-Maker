@@ -2119,7 +2119,7 @@ class GUIMethodsMixin:
         help_window.grab_set()
 
         # Contenido de ayuda
-        help_text = """WORKSHOPART PRO v3.0 - COMPLETE GUIDE / GUIA COMPLETA
+        help_text = """WORKSHOPART PRO v1.0 - COMPLETE GUIDE / GUIA COMPLETA
 
   STEP 1: SELECT FILE / PASO 1: SELECCIONAR ARCHIVO
   - Click "Open file" or drag & drop
@@ -2231,7 +2231,7 @@ class GUIMethodsMixin:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # Mensaje de bienvenida
-        self.log_message("🎮 WorkshopArt PRO v3.0 iniciado", "SUCCESS")
+        self.log_message("🎮 WorkshopArt PRO v1.0 iniciado", "SUCCESS")
         self.log_message("✨ Versión modular con todas las funciones", "INFO")
         self.log_message("📁 Selecciona un archivo para comenzar", "INFO")
 

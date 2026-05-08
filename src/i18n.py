@@ -12,7 +12,7 @@ _current_lang = "ES"
 ES = {
     # ---- gui.py  Sidebar ----
     "app_title": "WorkshopArt PRO",
-    "version": "v3.0",
+    "version": "v1.0",
     "open_file": "Abrir archivo",
     "process_ai": "Procesar con IA",
     "colors_only": "Solo colores",
@@ -411,7 +411,7 @@ ES = {
     # ---- gui_methods.py  show_help ----
     "help_window_title": "Ayuda - WorkshopArt PRO",
     "close_btn": "Cerrar",
-    "help_text": """WORKSHOPART PRO v3.0 - GUIA COMPLETA
+    "help_text": """WORKSHOPART PRO v1.0 - GUIA COMPLETA
 
     PASO 1: SELECCIONAR ARCHIVO
     - Haz clic en "Seleccionar Archivo"
@@ -464,7 +464,7 @@ ES = {
 
     # ---- gui_methods.py  on_closing / run ----
     "app_closed_log": "Aplicacion cerrada correctamente",
-    "welcome_log": "WorkshopArt PRO v3.0 iniciado",
+    "welcome_log": "WorkshopArt PRO v1.0 iniciado",
     "welcome_modular_log": "Version modular con todas las funciones",
     "welcome_start_log": "Selecciona un archivo para comenzar",
     "tutorial_opened_log": "Tutorial de Steam abierto",
@@ -544,7 +544,7 @@ ES = {
 EN = {
     # ---- gui.py  Sidebar ----
     "app_title": "WorkshopArt PRO",
-    "version": "v3.0",
+    "version": "v1.0",
     "open_file": "Open file",
     "process_ai": "Process with AI",
     "colors_only": "Colors only",
@@ -943,7 +943,7 @@ EN = {
     # ---- gui_methods.py  show_help ----
     "help_window_title": "Help - WorkshopArt PRO",
     "close_btn": "Close",
-    "help_text": """WORKSHOPART PRO v3.0 - COMPLETE GUIDE
+    "help_text": """WORKSHOPART PRO v1.0 - COMPLETE GUIDE
 
     STEP 1: SELECT FILE
     - Click "Select File"
@@ -996,7 +996,7 @@ EN = {
 
     # ---- gui_methods.py  on_closing / run ----
     "app_closed_log": "Application closed correctly",
-    "welcome_log": "WorkshopArt PRO v3.0 started",
+    "welcome_log": "WorkshopArt PRO v1.0 started",
     "welcome_modular_log": "Modular version with all features",
     "welcome_start_log": "Select a file to begin",
     "tutorial_opened_log": "Steam tutorial opened",
