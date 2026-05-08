@@ -96,13 +96,14 @@ class SteamProcessor:
         return self._workspace_root(source) / "fragmentos"
 
     def list_fragments(self, source: Path, pattern: str = "_part_") -> List[Path]:
-        """Lista los GIFs de fragmentación en la carpeta workspace.
+        """Lista fragmentos en la carpeta workspace (GIF, JPEG o PNG).
         `pattern` filtra por subcadena del nombre (ej. '_part_' o 'artwork_')."""
         frag_dir = self.get_fragments_dir(source)
         if not frag_dir.exists():
             return []
         return sorted(p for p in frag_dir.iterdir()
-                      if p.is_file() and p.suffix.lower() == ".gif"
+                      if p.is_file()
+                      and p.suffix.lower() in {".gif", ".jpg", ".jpeg", ".png"}
                       and pattern in p.name)
 
     def _archive_before_overwrite(self, out_dir: Path, keep_names: Optional[List[str]] = None) -> None:
@@ -1173,6 +1174,87 @@ class SteamProcessor:
         except Exception as e:
             logger.error(f"❌ Error en fragmentación Artwork Showcase: {e}")
             return False
+
+    def _split_image_into_jpeg_parts(self, image_path: Path,
+                                      parts: list, total_w: int, fixed_h,
+                                      output_dir: Path,
+                                      manifest_op: str, manifest_params: dict) -> bool:
+        """Crop a static image into JPEG panels using ffmpeg. Internal helper."""
+        try:
+            created = []
+            for (name, w, left) in parts:
+                out_path = output_dir / f"{image_path.stem}_{name}.jpg"
+                if fixed_h:
+                    vf = (f"scale={total_w}:{fixed_h}"
+                          f":force_original_aspect_ratio=increase"
+                          f":flags=lanczos+accurate_rnd+full_chroma_int,"
+                          f"crop={total_w}:{fixed_h},"
+                          f"crop={w}:{fixed_h}:{left}:0")
+                else:
+                    vf = (f"scale={total_w}:-2"
+                          f":flags=lanczos+accurate_rnd+full_chroma_int,"
+                          f"crop={w}:ih:{left}:0")
+                cmd = [str(self.ffmpeg_path), "-i", str(image_path),
+                       "-vf", vf, "-q:v", "2", "-y", str(out_path)]
+                logger.info(f"✂️ {name}: {out_path.name}")
+                r = subprocess.run(cmd, capture_output=True, text=True,
+                                   timeout=60, **_NO_WINDOW_FLAGS)
+                if r.returncode != 0 or not out_path.exists():
+                    logger.error(f"❌ {name}: {(r.stderr or '')[-200:]}")
+                    return False
+                size_mb = out_path.stat().st_size / (1024 * 1024)
+                logger.info(f"✅ {name}: {size_mb:.2f} MiB")
+                created.append(out_path)
+            self._write_manifest(output_dir, manifest_op, manifest_params,
+                                 archivos=created, fuente=image_path)
+            return True
+        except Exception as e:
+            logger.error(f"❌ _split_image_into_jpeg_parts: {e}")
+            return False
+
+    def split_image_for_artwork_showcase(self, image_path: Path, output_dir=None) -> bool:
+        """Split static image (JPG/PNG) into JPEG panels (main 506px + side 100px)."""
+        if not self.check_ffmpeg():
+            logger.error("❌ FFmpeg no disponible")
+            return False
+        image_path = Path(image_path)
+        if output_dir is None:
+            output_dir = self._workspace_dir(image_path, "fragmentos")
+        output_dir = Path(output_dir)
+        self._archive_before_overwrite(output_dir)
+        main_width = self.config.get('artwork_showcase.main_width', 506)
+        side_width = self.config.get('artwork_showcase.side_width', 100)
+        total_width = main_width + side_width
+        forced_height = self.config.get('artwork_showcase.height', 0)
+        fixed_h = int(forced_height) if forced_height and int(forced_height) > 0 else None
+        parts = [("artwork_main", main_width, 0), ("artwork_side", side_width, main_width)]
+        logger.info(f"🎨 Fragmentando imagen para Artwork Showcase: {image_path}")
+        return self._split_image_into_jpeg_parts(
+            image_path, parts, total_width, fixed_h, output_dir,
+            "fragmentar_artwork_showcase_image",
+            {"main_width": main_width, "side_width": side_width, "format": "jpeg"},
+        )
+
+    def split_image_for_showcase(self, image_path: Path, preset: str, output_dir=None) -> bool:
+        """Split static image (JPG/PNG) into JPEG panels per showcase preset."""
+        if preset not in self.SHOWCASE_PRESETS:
+            logger.error(f"❌ Preset desconocido: {preset}")
+            return False
+        if not self.check_ffmpeg():
+            logger.error("❌ FFmpeg no disponible")
+            return False
+        image_path = Path(image_path)
+        cfg = self.SHOWCASE_PRESETS[preset]
+        if output_dir is None:
+            output_dir = self._workspace_dir(image_path, "fragmentos")
+        output_dir = Path(output_dir)
+        self._archive_before_overwrite(output_dir)
+        logger.info(f"🎨 Preset '{preset}' (imagen) → {cfg['desc']}")
+        return self._split_image_into_jpeg_parts(
+            image_path, cfg["parts"], cfg["total_w"], cfg["fixed_h"], output_dir,
+            f"fragmentar_showcase_image_{preset}",
+            {"preset": preset, "format": "jpeg"},
+        )
 
     # ---- Presets para showcases (layouts verificados en foros Steam 2025) ----
     # Cada preset define:

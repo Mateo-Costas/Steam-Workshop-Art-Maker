@@ -19,6 +19,8 @@ from theme_PRO import Colors, Fonts
 # Hide subprocess console windows on Windows
 _NO_WINDOW_FLAGS = {'creationflags': subprocess.CREATE_NO_WINDOW} if platform.system() == 'Windows' else {}
 
+_STATIC_IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
+
 
 
 class GUIMethodsMixin:
@@ -2500,8 +2502,9 @@ class GUIMethodsMixin:
                 self.log_message("=== FRAGMENTACIÓN ARTWORK SHOWCASE ===", "INFO")
                 self.log_message(f"Archivo: {self.current_file.name}")
 
-                # Convertir a GIF si es necesario
-                if self.current_file.suffix.lower() != '.gif':
+                _is_static = self.current_file.suffix.lower() in _STATIC_IMAGE_EXTS
+
+                if not _is_static and self.current_file.suffix.lower() != '.gif':
                     self.log_message("Convirtiendo a GIF...")
                     self.update_status("Convirtiendo a GIF...", 20, "🎬")
                     gif_path = self.current_file.with_suffix('.gif')
@@ -2514,7 +2517,10 @@ class GUIMethodsMixin:
                 self.update_status("Fragmentando en 2 paneles...", 50, "🎨")
                 self.log_message("Fragmentando para Artwork Showcase (506 + 100 px)...")
 
-                success = self.processor.split_gif_for_artwork_showcase(self.current_file)
+                if _is_static:
+                    success = self.processor.split_image_for_artwork_showcase(self.current_file)
+                else:
+                    success = self.processor.split_gif_for_artwork_showcase(self.current_file)
 
                 if success:
                     self.update_status("¡Fragmentación Artwork completada!", 100, "✅")
@@ -2585,7 +2591,9 @@ class GUIMethodsMixin:
                 self.log_message(f"Descripción: {cfg['desc']}")
                 self.log_message(f"Archivo: {self.current_file.name}")
 
-                if self.current_file.suffix.lower() != '.gif':
+                _is_static = self.current_file.suffix.lower() in _STATIC_IMAGE_EXTS
+
+                if not _is_static and self.current_file.suffix.lower() != '.gif':
                     self.update_status("Convirtiendo a GIF...", 20, "🎬")
                     gif_path = self.current_file.with_suffix('.gif')
                     gif_path = proc.convert_video_to_gif(self.current_file, gif_path)
@@ -2594,14 +2602,22 @@ class GUIMethodsMixin:
                     self.current_file = gif_path
 
                 self.update_status(f"Generando {len(cfg['parts'])} parte(s)...", 50, "✂️")
-                success = proc.split_gif_for_showcase(self.current_file, preset)
+                if _is_static:
+                    success = proc.split_image_for_showcase(self.current_file, preset)
+                else:
+                    success = proc.split_gif_for_showcase(self.current_file, preset)
 
                 if not success:
                     raise Exception("Fragmentación falló")
 
                 self.update_status("¡Completado!", 100, "✅")
                 frag_dir = proc.get_fragments_dir(self.current_file)
-                fragments = sorted(Path(frag_dir).glob(f"{self.current_file.stem}_*.gif"))
+                _img_exts = {'.gif', '.jpg', '.jpeg', '.png'}
+                _stem = self.current_file.stem
+                fragments = sorted(
+                    p for p in Path(frag_dir).iterdir()
+                    if p.is_file() and p.suffix.lower() in _img_exts and f"{_stem}_" in p.name
+                )
                 total_mb = sum(f.stat().st_size for f in fragments) / (1024 * 1024)
                 for f in fragments:
                     mb = f.stat().st_size / (1024 * 1024)
