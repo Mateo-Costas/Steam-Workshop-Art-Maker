@@ -141,10 +141,8 @@ class GUIMethodsMixin:
         self.root.after(0, lambda t=title, m=msg: messagebox.showerror(t, m))
 
     def _launch_upload_tool(self):
-        import sys
-        import platform
         try:
-            flags = {'creationflags': subprocess.CREATE_NO_WINDOW} if platform.system() == 'Windows' else {}
+            flags = _NO_WINDOW_FLAGS
             if getattr(sys, 'frozen', False):
                 # Exe: relanzar el propio exe con flag --upload-tool
                 subprocess.Popen([sys.executable, "--upload-tool"], **flags)
@@ -606,7 +604,7 @@ class GUIMethodsMixin:
                 def update_ui():
                     # Actualizar selector de modelo
                     try:
-                        current_values = self.model_combo._values if hasattr(self.model_combo, '_values') else []
+                        current_values = self.model_combo.cget("values") or []
                     except Exception:
                         current_values = []
                     for value in current_values:
@@ -912,9 +910,6 @@ class GUIMethodsMixin:
                                 raise Exception(f"GIF base corrupto: {validation_error}")
 
                             # Aplicar mejoras con timeout
-                            import threading
-                            import time
-
                             enhanced_path = None
                             enhancement_error = None
 
@@ -1275,11 +1270,11 @@ class GUIMethodsMixin:
                 estimate_label.configure(text="Tamano estimado: No disponible")
 
         # Vincular eventos para actualizar estimación
-        fps_var.trace("w", lambda *args: update_estimate())
-        custom_fps_var.trace("w", lambda *args: update_estimate())
-        quality_var.trace("w", lambda *args: update_estimate())
-        resize_var.trace("w", lambda *args: update_estimate())
-        custom_var.trace("w", lambda *args: update_estimate())
+        fps_var.trace_add("write", lambda *args: update_estimate())
+        custom_fps_var.trace_add("write", lambda *args: update_estimate())
+        quality_var.trace_add("write", lambda *args: update_estimate())
+        resize_var.trace_add("write", lambda *args: update_estimate())
+        custom_var.trace_add("write", lambda *args: update_estimate())
 
         update_estimate()  # Estimación inicial
 
@@ -1340,7 +1335,6 @@ class GUIMethodsMixin:
                         self.update_queue.put((update_ui, ()))
 
                         # Mostrar estadísticas
-                        original_size = self.current_file.stat().st_size / (1024 * 1024)
                         final_size = final_result.stat().st_size / (1024 * 1024)
 
                         self.update_status("¡Conversión completada!", 100, "✅")
@@ -1370,7 +1364,6 @@ class GUIMethodsMixin:
                     self.log_message(f"ERROR: {e}", "ERROR")
                     self._ui_error("Error", f"Error convirtiendo video:\n\n{e}")
 
-            import threading
             self._run_cancellable(process)
 
         ctk.CTkButton(button_frame, text="Convertir a GIF",
@@ -1434,6 +1427,8 @@ class GUIMethodsMixin:
             def process():
                 self._raise_if_cancelled()
                 try:
+                    result = None
+                    success_msg = ""
                     if selected_option == "rife":
                         self.update_status("Interpolando con RIFE IA...", 30, "🧠")
                         self.log_message("=== INTERPOLACIÓN RIFE 2x ===", "INFO")
@@ -2218,8 +2213,11 @@ class GUIMethodsMixin:
         """Manejar cierre de aplicacion"""
         try:
             self._stop_gif_animation()
-            # Limpiar archivos temporales
-            temp_dir = Path("temp")
+            # Limpiar archivos temporales (ruta según modo frozen o dev)
+            if getattr(sys, 'frozen', False):
+                temp_dir = Path(sys.executable).parent / "temp"
+            else:
+                temp_dir = Path("temp")
             if temp_dir.exists():
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -2573,7 +2571,6 @@ class GUIMethodsMixin:
             if not preset:
                 return
 
-        from pathlib import Path as _P
         proc = self.processor
         if preset not in proc.SHOWCASE_PRESETS:
             self._ui_error("Error", f"Preset desconocido: {preset}")
@@ -2604,7 +2601,7 @@ class GUIMethodsMixin:
 
                 self.update_status("¡Completado!", 100, "✅")
                 frag_dir = proc.get_fragments_dir(self.current_file)
-                fragments = sorted(_P(frag_dir).glob(f"{self.current_file.stem}_*.gif"))
+                fragments = sorted(Path(frag_dir).glob(f"{self.current_file.stem}_*.gif"))
                 total_mb = sum(f.stat().st_size for f in fragments) / (1024 * 1024)
                 for f in fragments:
                     mb = f.stat().st_size / (1024 * 1024)
@@ -2706,22 +2703,10 @@ class GUIMethodsMixin:
         ctk.CTkButton(btns, text="📁 Abrir carpeta", command=_open_folder,
                       width=130).pack(side="left", padx=4)
 
-        upload_tool_path = Path(__file__).parent.parent / "upload_tool.py"
-        if upload_tool_path.exists():
-            def _launch_uploader():
-                try:
-                    subprocess.Popen(
-                        [sys.executable, str(upload_tool_path)],
-                        cwd=str(upload_tool_path.parent),
-                        **_NO_WINDOW_FLAGS,
-                    )
-                except Exception as exc:
-                    messagebox.showerror("Error", f"No se pudo abrir el Upload Tool:\n{exc}",
-                                         parent=dlg)
-            ctk.CTkButton(btns, text="🚀 Abrir Upload Tool",
-                          command=_launch_uploader,
-                          fg_color="#16a34a", hover_color="#15803d",
-                          width=160).pack(side="left", padx=4)
+        ctk.CTkButton(btns, text="🚀 Abrir Upload Tool",
+                      command=self._launch_upload_tool,
+                      fg_color="#16a34a", hover_color="#15803d",
+                      width=160).pack(side="left", padx=4)
 
         ctk.CTkButton(btns, text="Cerrar", command=dlg.destroy,
                       fg_color="#555", width=80).pack(side="right", padx=4)
