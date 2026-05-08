@@ -1,21 +1,32 @@
-MIT License
-
-Copyright (c) 2026 Mateo-Costas
+Copyright (c) 2026 Mateo Costas. All rights reserved.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+of this software (the "Software"), to use it for personal, non-commercial
+purposes only, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. PERMITTED USE
+   - Personal, non-commercial use only.
+   - You may view and study the source code for educational purposes.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. RESTRICTIONS
+   - You may NOT use, copy, modify, merge, distribute, sublicense, sell,
+     or incorporate the Software or any portion of it into any product or
+     service, commercial or otherwise, without the express written permission
+     of the copyright holder.
+   - You may NOT use the Software for any malicious, harmful, or illegal
+     purpose, including but not limited to unauthorized access to third-party
+     services, scraping, or bypassing terms of service of any platform.
+   - You may NOT redistribute the Software or any modified version of it,
+     publicly or privately, without the express written permission of the
+     copyright holder.
+
+3. ATTRIBUTION
+   - Any permitted use must retain this copyright notice.
+
+4. NO WARRANTY
+   The Software is provided "as is", without warranty of any kind. The author
+   is not liable for any damages arising from the use of this Software.
+
+5. CONTACT
+   For permissions beyond the scope of this license, contact the author at:
+   https://github.com/Mateo-Costas

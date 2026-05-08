@@ -3,7 +3,7 @@
 <div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green)
+![License](https://img.shields.io/badge/License-Proprietary-red)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey?logo=windows)
 ![AI](https://img.shields.io/badge/AI-Real--ESRGAN%20%7C%20Real--CUGAN-orange)
 ![Version](https://img.shields.io/badge/Version-3.0-blue)
@@ -291,7 +291,7 @@ Steam-Workshop-Art-Maker/
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is proprietary software. Personal, non-commercial use only. Redistribution, modification, and commercial use are not permitted without explicit written permission from the author. See [LICENSE](LICENSE) for full terms.
 
 ---
 
