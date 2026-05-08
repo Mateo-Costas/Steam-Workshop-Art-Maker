@@ -206,6 +206,19 @@ class WorkshopArtGUI(GUIMethodsMixin):
         self._dl_btn.pack(fill="x", padx=15, pady=4)
         self.create_tooltip(self._dl_btn, t("tip_download_models"))
 
+        # Upload Tool (solo si existe el archivo privado)
+        _upload_tool_path = Path(__file__).parent.parent / "upload_tool.py"
+        if _upload_tool_path.exists():
+            self._upload_tool_btn = ctk.CTkButton(
+                sidebar, text="🚀 Upload Tool",
+                command=self._launch_upload_tool,
+                fg_color="#16a34a", hover_color="#15803d",
+                height=38, corner_radius=8, font=Fonts.SMALL,
+            )
+            self._upload_tool_btn.pack(fill="x", padx=15, pady=4)
+        else:
+            self._upload_tool_btn = None
+
         # Ayuda
         self._help_btn = ctk.CTkButton(
             sidebar, text=t("help"), command=self.show_help,
@@ -552,6 +565,19 @@ class WorkshopArtGUI(GUIMethodsMixin):
     # ------------------------------------------------------------------
     # Compat bridges para que GUIMethodsMixin funcione sin cambios
     # ------------------------------------------------------------------
+    def _launch_upload_tool(self):
+        import subprocess, sys
+        upload_tool_path = Path(__file__).parent.parent / "upload_tool.py"
+        if not upload_tool_path.exists():
+            messagebox.showerror("Error", "upload_tool.py no encontrado.")
+            return
+        try:
+            flags = {'creationflags': subprocess.CREATE_NO_WINDOW} if __import__('platform').system() == 'Windows' else {}
+            subprocess.Popen([sys.executable, str(upload_tool_path)],
+                             cwd=str(upload_tool_path.parent), **flags)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo abrir el Upload Tool:\n{e}")
+
     def _update_system_status_label(self, widget, text, ok):
         color = Colors.SUCCESS if ok else Colors.WARNING
         widget.configure(text=text, text_color=color)
