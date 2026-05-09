@@ -2,13 +2,17 @@
 gui_methods.py - Mixin con metodos de funcionalidad de la GUI
 """
 import sys
+import gc
+import io
+import os
+import uuid
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from datetime import datetime
 import threading
 from pathlib import Path
-from PIL import Image, ImageTk, ImageSequence
+from PIL import Image, ImageTk, ImageSequence, ImageEnhance
 from typing import Optional
 import shutil
 import webbrowser
@@ -413,7 +417,6 @@ class GUIMethodsMixin:
                     finally:
                         # Liberar las imágenes PIL fuente; PhotoImage ya copió los datos
                         frames.clear()
-                        import gc
                         gc.collect()
 
                 self.update_queue.put((install, ()))
@@ -475,8 +478,7 @@ class GUIMethodsMixin:
                     _gif_src = self.current_file
                     _gif_bytes = _gif_src.read_bytes()
                     if _gif_bytes and _gif_bytes[-1] == 0x21:
-                        import io as _io
-                        _gif_src = _io.BytesIO(_gif_bytes[:-1] + b"\x3B")
+                        _gif_src = io.BytesIO(_gif_bytes[:-1] + b"\x3B")
                     gif_open_target = _gif_src
                 except Exception:
                     gif_open_target = self.current_file
@@ -492,7 +494,6 @@ class GUIMethodsMixin:
                         resized.thumbnail((375, 250), Image.Resampling.LANCZOS)
                         photo = ImageTk.PhotoImage(resized)
                         self._gif_frames.append(photo)
-                import gc
                 gc.collect()
 
                 if self._gif_frames:
@@ -536,8 +537,7 @@ class GUIMethodsMixin:
                 try:
                     _g_bytes = self.current_file.read_bytes()
                     if _g_bytes and _g_bytes[-1] == 0x21:
-                        import io as _io
-                        _g_target = _io.BytesIO(_g_bytes[:-1] + b"\x3B")
+                        _g_target = io.BytesIO(_g_bytes[:-1] + b"\x3B")
                     else:
                         _g_target = self.current_file
                     with Image.open(_g_target) as img:
@@ -741,7 +741,6 @@ class GUIMethodsMixin:
                 else:
                     base_temp = Path("temp")
 
-                import uuid
                 unique_id = str(uuid.uuid4())[:8]
                 temp_dir = base_temp / f"process_{unique_id}"
                 temp_dir.mkdir(parents=True, exist_ok=True)
@@ -776,8 +775,7 @@ class GUIMethodsMixin:
                 # Extraer frames
                 if is_static_image:
                     # Static image: copy as single frame
-                    from PIL import Image as PILImage
-                    with PILImage.open(self.current_file) as _img:
+                    with Image.open(self.current_file) as _img:
                         img = _img.convert('RGB')
                     frame_path = frames_dir / "frame_000000.png"
                     img.save(frame_path, "PNG")
@@ -846,8 +844,7 @@ class GUIMethodsMixin:
                 if is_static_image:
                     self.update_status("Guardando imagen mejorada...", 90, "📦")
                     output_path = self.current_file.parent / f"{self.current_file.stem}_AI_4x.png"
-                    import shutil as _shutil
-                    _shutil.copy2(str(upscaled_frames[0]), str(output_path))
+                    shutil.copy2(str(upscaled_frames[0]), str(output_path))
 
                     if not output_path.exists():
                         raise Exception(f"Imagen no se guardó correctamente: {output_path}")
@@ -858,8 +855,7 @@ class GUIMethodsMixin:
                     # Apply color enhancements if enabled
                     if self.enhance_colors_var.get():
                         try:
-                            from PIL import Image as PILImage, ImageEnhance
-                            with PILImage.open(output_path) as img:
+                            with Image.open(output_path) as img:
                                 rgb = img.convert('RGB')
                                 rgb = ImageEnhance.Contrast(rgb).enhance(self.contrast_var.get())
                                 rgb = ImageEnhance.Color(rgb).enhance(self.saturation_var.get())
@@ -1065,7 +1061,6 @@ class GUIMethodsMixin:
                 # CORRECCIÓN 8: Limpieza robusta
                 try:
                     if temp_dir and temp_dir.exists():
-                        import shutil
                         shutil.rmtree(temp_dir, ignore_errors=True)
                         self.log_message("Archivos temporales limpiados")
                 except Exception as cleanup_error:
@@ -2634,7 +2629,6 @@ class GUIMethodsMixin:
 
     def _show_showcase_result_dialog(self, preset: str, cfg: dict, frag_dir, fragments: list, total_mb: float):
         """Diálogo de resultado de fragmentación con acciones rápidas."""
-        import os
         upload_hint = cfg.get("upload_hint", "artwork")
         spoof = cfg.get("spoof_dims", False)
 
@@ -2730,7 +2724,6 @@ class GUIMethodsMixin:
 
     def _pick_showcase_preset(self) -> Optional[str]:
         """Diálogo modal para elegir preset de showcase."""
-        import customtkinter as ctk
         presets = self.processor.SHOWCASE_PRESETS
         dlg = ctk.CTkToplevel(self.root if hasattr(self, 'root') else None)
         dlg.title("Elegir preset de Showcase")

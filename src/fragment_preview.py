@@ -5,9 +5,10 @@ fragment_preview.py - Sistema de preview de fragmentos para Steam Workshop
 import logging
 import tkinter as tk
 from tkinter import ttk
+from datetime import datetime
+from pathlib import Path
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import numpy as np
-from pathlib import Path
 
 logger = logging.getLogger("WorkshopArtPRO.fragment_preview")
 
@@ -498,7 +499,6 @@ class FragmentPreviewSystem:
                 f.write("👁️ WORKSHOPART PRO - PREVIEW DE FRAGMENTOS\n")
                 f.write("=" * 50 + "\n\n")
                 f.write(f"📁 Archivo: {gif_path.name}\n")
-                from datetime import datetime
                 f.write(f"📅 Generado: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n\n")
                 
                 f.write("📊 ANÁLISIS DE FRAGMENTACIÓN\n")

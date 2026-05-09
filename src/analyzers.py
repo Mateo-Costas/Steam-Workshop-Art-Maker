@@ -46,7 +46,8 @@ class ContentAnalyzer:
                             frame = img.convert('RGB')
                             frame_scores = ContentAnalyzer._analyze_image_adjusted(frame)
                             all_scores.append(frame_scores)
-                        except Exception:
+                        except Exception as e:
+                            logger.debug(f"Frame {i} no analizable: {e}")
                             break
                     
                     if all_scores:
