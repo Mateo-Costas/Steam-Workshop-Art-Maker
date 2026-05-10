@@ -19,6 +19,7 @@ import webbrowser
 import subprocess
 import platform
 from theme_PRO import Colors, Fonts
+from analyzers import ContentAnalyzer as _ContentAnalyzer
 
 # Hide subprocess console windows on Windows
 _NO_WINDOW_FLAGS = {'creationflags': subprocess.CREATE_NO_WINDOW} if platform.system() == 'Windows' else {}
@@ -27,18 +28,10 @@ _STATIC_IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
 
 
 def _steam_format_suggestion(w: int, h: int) -> Optional[str]:
-    """Return the recommended Steam Workshop format based on aspect ratio."""
+    """Delegates to ContentAnalyzer._get_upload_suggestion — single source of truth."""
     if h <= 0:
         return None
-    ratio = w / h
-    if ratio >= 3.5:
-        return "Workshop Showcase (5 partes 638x354)"
-    elif ratio >= 1.5:
-        return "Screenshot Showcase (638x354)"
-    elif ratio >= 0.8:
-        return "Artwork Showcase (main 506px + side 100px)"
-    else:
-        return "Artwork Showcase o Perfil Background"
+    return _ContentAnalyzer._get_upload_suggestion(w, h)
 
 
 class GUIMethodsMixin:
@@ -2545,19 +2538,13 @@ class GUIMethodsMixin:
 
                     # Localizar paneles reales en el workspace
                     artwork_panels = self.processor.list_fragments(self.current_file, "artwork_")
-                    created_files = []
-                    total_size = 0
+
+                    if not artwork_panels:
+                        raise Exception("No se encontraron paneles artwork en el workspace tras la fragmentación")
 
                     for frag in artwork_panels:
                         size_mb = frag.stat().st_size / (1024 * 1024)
-                        status = "✅" if size_mb <= 10.0 else "⚠️"
-                        label = "Panel principal (506px)" if "artwork_main" in frag.name else "Panel lateral (100px)"
-                        created_files.append(f"{status} {frag.name}: {size_mb:.2f} MB - {label}")
-                        total_size += size_mb
                         self.log_message(f"Creado: {frag.name} ({size_mb:.2f} MB)", "SUCCESS")
-
-                    if not created_files:
-                        raise Exception("No se encontraron paneles artwork en el workspace tras la fragmentación")
 
                     self.root.after(0, lambda p=list(artwork_panels): self._show_artwork_result_dialog(p))
 
@@ -2633,7 +2620,9 @@ class GUIMethodsMixin:
                 for f in fragments:
                     mb = f.stat().st_size / (1024 * 1024)
                     self.log_message(f"Creado: {f.name} ({mb:.2f} MB)", "SUCCESS")
-                self._show_showcase_result_dialog(preset, cfg, frag_dir, fragments, total_mb)
+                self.root.after(0, lambda p=preset, c=cfg, fd=frag_dir,
+                               fr=list(fragments), tm=total_mb:
+                               self._show_showcase_result_dialog(p, c, fd, fr, tm))
             except Exception as e:
                 self.update_status("Error", 0, "❌")
                 self.log_message(f"ERROR: {e}", "ERROR")
@@ -2736,7 +2725,6 @@ class GUIMethodsMixin:
 
         ctk.CTkButton(btns, text="Cerrar", command=dlg.destroy,
                       fg_color="#555", width=80).pack(side="right", padx=4)
-        dlg.wait_window()
 
     def _show_artwork_result_dialog(self, panels: list):
         """Result dialog for Artwork Showcase fragmentation with direct upload shortcut."""
