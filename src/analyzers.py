@@ -28,14 +28,18 @@ class ContentAnalyzer:
             "vintage_anime_score": 0.0,
             "modern_anime_score": 0.0,
             "gaming_score": 0.0,
-            "realistic_score": 0.0
+            "realistic_score": 0.0,
+            "aspect_ratio": None,
+            "upload_suggestion": None,
         }
-        
+
+        _aw = _ah = 0
         try:
             logger.debug(f"Analizando: {file_path.name}")
             
             if file_path.suffix.lower() == '.gif':
                 with Image.open(file_path) as img:
+                    _aw, _ah = img.size
                     # Analizar múltiples frames
                     frames_to_analyze = min(5, getattr(img, 'n_frames', 1))
                     all_scores = []
@@ -55,9 +59,17 @@ class ContentAnalyzer:
                     else:
                         results.update(ContentAnalyzer._analyze_image_adjusted(img.convert('RGB')))
             
-            elif file_path.suffix.lower() in ['.mp4', '.avi', '.mov']:
+            elif file_path.suffix.lower() in ('.jpg', '.jpeg', '.png', '.bmp', '.webp'):
+                with Image.open(file_path) as img:
+                    _aw, _ah = img.size
+                    frame = img.convert('RGB')
+                    results = ContentAnalyzer._analyze_image_adjusted(frame)
+
+            elif file_path.suffix.lower() in ('.mp4', '.avi', '.mov'):
                 # Analizar video
                 cap = cv2.VideoCapture(str(file_path))
+                _aw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                _ah = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 frames_analyzed = 0
                 all_scores = []
                 
@@ -85,6 +97,12 @@ class ContentAnalyzer:
                 
         except Exception as e:
             logger.warning(f"Error analizando contenido: {e}")
+
+        results.setdefault('aspect_ratio', None)
+        results.setdefault('upload_suggestion', None)
+        if _aw > 0 and _ah > 0:
+            results['aspect_ratio'] = round(_aw / _ah, 3)
+            results['upload_suggestion'] = ContentAnalyzer._get_upload_suggestion(_aw, _ah)
 
         logger.debug(
             "Analisis: anime=%.2f vintage=%.2f modern=%.2f gaming=%.2f realistic=%.2f "
@@ -632,14 +650,30 @@ class ContentAnalyzer:
         return merged
     
     @staticmethod
+    def _get_upload_suggestion(w: int, h: int) -> str:
+        """Suggest the best Steam Workshop upload format based on image aspect ratio."""
+        if h <= 0:
+            return "Artwork Showcase"
+        ratio = w / h
+        if ratio >= 3.5:
+            return "Workshop Showcase (5 partes 638x354)"
+        elif ratio >= 1.5:
+            return "Screenshot Showcase (638x354)"
+        elif ratio >= 0.8:
+            return "Artwork Showcase (main 506px + side 100px)"
+        else:
+            return "Artwork Showcase o Perfil Background"
+
+    @staticmethod
     def get_content_description(content_type: str) -> str:
         """Descripciones ajustadas"""
         descriptions = {
-            "anime/vintage": "📼 Anime Vintage - One Piece, Dragon Ball (PERFECTO para realesr-animevideov3-x4)",
-            "anime/modern": "✨ Anime Moderno - HD con colores digitales",
-            "anime/vintage_fallback": "📼 Anime Vintage (Fallback) - Mejor opción para contenido anime incierto",
-            "gaming/mixed": "🎮 Gaming - Contenido de videojuegos",
-            "realistic/photo": "📷 Realista - Contenido fotográfico",
-            "mixed": "🔀 Mixto - Contenido variado"
+            "anime/vintage": "Anime Vintage — One Piece, Dragon Ball (mejor: realesr-animevideov3-x4)",
+            "anime/modern": "Anime Moderno — HD con colores digitales vibrantes",
+            "anime/vintage_uncertain": "Posible Anime Vintage — amplía análisis para confirmar",
+            "anime/vintage_fallback": "Anime Vintage (fallback) — mejor apuesta para anime incierto",
+            "gaming/mixed": "Gaming — capturas de videojuegos, UI/HUD visible",
+            "realistic/photo": "Realista/Foto — fotografía o render 3D fotorrealista",
+            "mixed": "Mixto — contenido variado sin tipo dominante",
         }
-        return descriptions.get(content_type, "❓ Tipo desconocido")
+        return descriptions.get(content_type, "Tipo desconocido")

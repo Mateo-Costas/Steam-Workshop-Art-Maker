@@ -439,7 +439,11 @@ def run_upload_tool():
         ROOT = Path(__file__).parent.parent if not getattr(sys, 'frozen', False) else Path(sys.executable).parent
         sys.path.insert(0, str(ROOT / "src"))
         from upload_tool import UploadApp
-        app = UploadApp()
+        _preload = []
+        if '--fragments' in sys.argv:
+            idx = sys.argv.index('--fragments')
+            _preload = [Path(p) for p in sys.argv[idx + 1:] if not p.startswith('--')]
+        app = UploadApp(preloaded_files=_preload)
         app.mainloop()
     except Exception as e:
         import tkinter as _tk

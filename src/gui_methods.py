@@ -26,6 +26,20 @@ _NO_WINDOW_FLAGS = {'creationflags': subprocess.CREATE_NO_WINDOW} if platform.sy
 _STATIC_IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
 
 
+def _steam_format_suggestion(w: int, h: int) -> Optional[str]:
+    """Return the recommended Steam Workshop format based on aspect ratio."""
+    if h <= 0:
+        return None
+    ratio = w / h
+    if ratio >= 3.5:
+        return "Workshop Showcase (5 partes 638x354)"
+    elif ratio >= 1.5:
+        return "Screenshot Showcase (638x354)"
+    elif ratio >= 0.8:
+        return "Artwork Showcase (main 506px + side 100px)"
+    else:
+        return "Artwork Showcase o Perfil Background"
+
 
 class GUIMethodsMixin:
     """Mixin que aporta toda la funcionalidad de procesamiento a la GUI."""
@@ -146,19 +160,18 @@ class GUIMethodsMixin:
     def _ui_error(self, title, msg):
         self.root.after(0, lambda t=title, m=msg: messagebox.showerror(t, m))
 
-    def _launch_upload_tool(self):
+    def _launch_upload_tool(self, fragments=None):
         try:
             flags = _NO_WINDOW_FLAGS
+            frag_args = (["--fragments"] + [str(f) for f in fragments]) if fragments else []
             if getattr(sys, 'frozen', False):
-                # Exe: relanzar el propio exe con flag --upload-tool
-                subprocess.Popen([sys.executable, "--upload-tool"], **flags)
+                subprocess.Popen([sys.executable, "--upload-tool"] + frag_args, **flags)
             else:
-                # Desarrollo: lanzar upload_tool.py con Python
                 upload_tool_path = Path(__file__).parent.parent / "upload_tool.py"
                 if not upload_tool_path.exists():
                     messagebox.showerror("Error", "upload_tool.py no encontrado.")
                     return
-                subprocess.Popen([sys.executable, str(upload_tool_path)],
+                subprocess.Popen([sys.executable, str(upload_tool_path)] + frag_args,
                                  cwd=str(upload_tool_path.parent), **flags)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo abrir el Upload Tool:\n{e}")
@@ -546,6 +559,9 @@ class GUIMethodsMixin:
                         duration = img.info.get('duration', 100)
                         fps = 1000 / duration if duration > 0 else 10
                         details_text += f"\nFPS: {fps:.1f}"
+                        _sug = _steam_format_suggestion(img.size[0], img.size[1])
+                        if _sug:
+                            details_text += f"\nSugerido: {_sug}"
                 except Exception as _gif_err:
                     details_text += f"\n(info GIF no disponible: {_gif_err})"
 
@@ -554,6 +570,9 @@ class GUIMethodsMixin:
                     details_text += f"\nDimensiones: {img.size[0]}x{img.size[1]}"
                     details_text += f"\nFormato: {img.format or ext.upper().lstrip('.')}"
                     details_text += f"\nModo: {img.mode}"
+                    _sug = _steam_format_suggestion(img.size[0], img.size[1])
+                    if _sug:
+                        details_text += f"\nSugerido: {_sug}"
 
             elif ext in ('.mp4', '.avi', '.mov'):
                 try:
@@ -562,6 +581,9 @@ class GUIMethodsMixin:
                         details_text += f"\nDimensiones: {clip.w}x{clip.h}"
                         details_text += f"\nDuracion: {clip.duration:.1f}s"
                         details_text += f"\nFPS: {clip.fps:.1f}"
+                        _sug = _steam_format_suggestion(clip.w, clip.h)
+                        if _sug:
+                            details_text += f"\nSugerido: {_sug}"
                 except Exception:
                     details_text += "\nNo se pudo leer info del video"
 
@@ -2537,13 +2559,7 @@ class GUIMethodsMixin:
                     if not created_files:
                         raise Exception("No se encontraron paneles artwork en el workspace tras la fragmentación")
 
-                    result_text = f"🎉 ¡Fragmentación Artwork completada!\n\n"
-                    result_text += f"📁 Archivos creados:\n"
-                    result_text += "\n".join(created_files)
-                    result_text += f"\n\n📊 Tamaño total: {total_size:.2f} MB"
-                    result_text += f"\n\n🎨 ¡Listos para tu Artwork Showcase de Steam!"
-
-                    self._ui_info("¡Artwork Showcase Listo!", result_text)
+                    self.root.after(0, lambda p=list(artwork_panels): self._show_artwork_result_dialog(p))
 
                 else:
                     raise Exception("La fragmentación Artwork falló")
@@ -2714,13 +2730,51 @@ class GUIMethodsMixin:
                       width=130).pack(side="left", padx=4)
 
         ctk.CTkButton(btns, text="🚀 Abrir Upload Tool",
-                      command=self._launch_upload_tool,
+                      command=lambda f=list(fragments): (dlg.destroy(), self._launch_upload_tool(f)),
                       fg_color="#16a34a", hover_color="#15803d",
                       width=160).pack(side="left", padx=4)
 
         ctk.CTkButton(btns, text="Cerrar", command=dlg.destroy,
                       fg_color="#555", width=80).pack(side="right", padx=4)
         dlg.wait_window()
+
+    def _show_artwork_result_dialog(self, panels: list):
+        """Result dialog for Artwork Showcase fragmentation with direct upload shortcut."""
+        if not panels:
+            return
+        frag_dir = panels[0].parent
+        dlg = ctk.CTkToplevel(self.root)
+        dlg.title("Artwork Showcase Listo")
+        dlg.geometry("520x280")
+        dlg.grab_set()
+
+        ctk.CTkLabel(dlg, text="Artwork Showcase completado",
+                     font=("Segoe UI", 14, "bold")).pack(pady=(14, 4))
+
+        flist = ctk.CTkScrollableFrame(dlg, height=100, label_text="Paneles generados")
+        flist.pack(fill="x", padx=14, pady=(0, 8))
+        for f in panels:
+            mb = f.stat().st_size / (1024 * 1024)
+            ctk.CTkLabel(flist, text=f"  {f.name}  —  {mb:.2f} MB",
+                         anchor="w", font=("Consolas", 10)).pack(anchor="w", padx=6, pady=1)
+
+        btns = ctk.CTkFrame(dlg, fg_color="transparent")
+        btns.pack(fill="x", padx=14, pady=8)
+
+        def _open_folder():
+            try:
+                os.startfile(str(frag_dir))
+            except Exception:
+                pass
+
+        ctk.CTkButton(btns, text="📁 Abrir carpeta", command=_open_folder,
+                      width=130).pack(side="left", padx=4)
+        ctk.CTkButton(btns, text="🚀 Abrir Upload Tool",
+                      command=lambda f=panels: (dlg.destroy(), self._launch_upload_tool(f)),
+                      fg_color="#16a34a", hover_color="#15803d",
+                      width=160).pack(side="left", padx=4)
+        ctk.CTkButton(btns, text="Cerrar", command=dlg.destroy,
+                      fg_color="#555", width=80).pack(side="right", padx=4)
 
     def _pick_showcase_preset(self) -> Optional[str]:
         """Diálogo modal para elegir preset de showcase."""
