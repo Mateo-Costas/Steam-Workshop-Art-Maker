@@ -289,6 +289,16 @@ Steam-Workshop-Art-Maker/
 
 ---
 
+## Support the Project
+
+If WorkshopArt PRO saved you time, consider supporting continued development. Every contribution helps maintain the project and fund new features.
+
+<!-- TODO: Add donation links (Ko-fi / PayPal / crypto / etc.) -->
+
+> Donation links coming soon.
+
+---
+
 ## License
 
 This project is proprietary software. Personal, non-commercial use only. Redistribution, modification, and commercial use are not permitted without explicit written permission from the author. See [LICENSE](LICENSE) for full terms.
