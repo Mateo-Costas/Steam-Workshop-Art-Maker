@@ -12,7 +12,7 @@
 
 Transform videos and GIFs into upload-ready fragments for any Steam showcase — Artwork, Screenshot, Workshop, Panorama — using AI upscaling (Real-ESRGAN / Real-CUGAN).
 
-[⬇ Download .exe on Itch.io](https://mxteoo7.itch.io) | [Quick Start](#installation) | [Steam Upload Guide](#uploading-to-steam) | [Report a Bug](../../issues/new)
+[⬇ Download .exe on Itch.io](https://mxteoo7.itch.io/workshopart-pro) | [Quick Start](#installation) | [Steam Upload Guide](#uploading-to-steam) | [Report a Bug](../../issues/new)
 
 </div>
 
@@ -71,7 +71,7 @@ All presets apply cover+crop (no distortion), 2-pass GIF palette optimization, a
 
 ### Compiled .exe (recommended)
 
-Download the ready-to-run Windows executable from **[Itch.io](https://mxteoo7.itch.io)** — no Python or setup required. Just download, run, and go.
+Download the ready-to-run Windows executable from **[Itch.io](https://mxteoo7.itch.io/workshopart-pro)** — no Python or setup required. Just download, run, and go.
 
 > The compiled release includes all dependencies bundled. AI models and FFmpeg are still downloaded automatically on first launch.
 
@@ -290,7 +290,7 @@ Steam-Workshop-Art-Maker/
 
 If WorkshopArt PRO saved you time, the best way to support development is to grab the compiled release on Itch.io.
 
-[![Download on Itch.io](https://img.shields.io/badge/Download-.exe-FA5C5C?logo=itch.io&logoColor=white)](https://mxteoo7.itch.io)
+[![Download on Itch.io](https://img.shields.io/badge/Download-.exe-FA5C5C?logo=itch.io&logoColor=white)](https://mxteoo7.itch.io/workshopart-pro)
 
 <!-- TODO: Add Ko-fi / PayPal link -->
 
