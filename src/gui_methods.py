@@ -153,18 +153,22 @@ class GUIMethodsMixin:
     def _ui_error(self, title, msg):
         self.root.after(0, lambda t=title, m=msg: messagebox.showerror(t, m))
 
-    def _launch_upload_tool(self, fragments=None):
+    def _launch_upload_tool(self, fragments=None, preset: str = None):
         try:
             flags = _NO_WINDOW_FLAGS
-            frag_args = (["--fragments"] + [str(f) for f in fragments]) if fragments else []
+            extra = []
+            if fragments:
+                extra += ["--fragments"] + [str(f) for f in fragments]
+            if preset:
+                extra += ["--preset", preset]
             if getattr(sys, 'frozen', False):
-                subprocess.Popen([sys.executable, "--upload-tool"] + frag_args, **flags)
+                subprocess.Popen([sys.executable, "--upload-tool"] + extra, **flags)
             else:
                 upload_tool_path = Path(__file__).parent.parent / "upload_tool.py"
                 if not upload_tool_path.exists():
                     messagebox.showerror("Error", "upload_tool.py no encontrado.")
                     return
-                subprocess.Popen([sys.executable, str(upload_tool_path)] + frag_args,
+                subprocess.Popen([sys.executable, str(upload_tool_path)] + extra,
                                  cwd=str(upload_tool_path.parent), **flags)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo abrir el Upload Tool:\n{e}")
@@ -255,6 +259,16 @@ class GUIMethodsMixin:
                 else:
                     self.update_system_status("ffmpeg", "No encontrado", "error")
                     self.log_message("FFmpeg no encontrado - Algunas funciones limitadas", "WARNING")
+
+                # Verificar gifski
+                if self.processor.check_gifski():
+                    self.log_message("gifski disponible — compresión GIF de alta calidad activa", "SUCCESS")
+                else:
+                    self.log_message(
+                        "gifski no encontrado (opcional). "
+                        "Descarga gifski.exe desde github.com/ImageOptim/gifski/releases "
+                        "y colócalo junto al exe para mejor compresión de Artwork Showcase.", "WARNING"
+                    )
 
                 # Verificar modelos
                 available_models = self.processor.model_manager.check_available_models()
@@ -473,43 +487,71 @@ class GUIMethodsMixin:
             ext = self.current_file.suffix.lower()
 
             if ext == '.gif':
-                # Extraer frames para animacion (con limite para evitar leak de memoria).
-                # Si el GIF ya tiene el trailer patcheado para Steam (0x21 en vez de
-                # 0x3B), Pillow no puede decodificarlo → leemos los bytes y
-                # restauramos el trailer en memoria antes de abrir.
-                self._gif_frames = []
-                self._gif_frame_index = 0
-                MAX_PREVIEW_FRAMES = 60
-                try:
-                    _gif_src = self.current_file
-                    _gif_bytes = _gif_src.read_bytes()
-                    if _gif_bytes and _gif_bytes[-1] == 0x21:
-                        _gif_src = io.BytesIO(_gif_bytes[:-1] + b"\x3B")
-                    gif_open_target = _gif_src
-                except Exception:
-                    gif_open_target = self.current_file
-                with Image.open(gif_open_target) as gif_img:
-                    self._gif_frame_delay = gif_img.info.get('duration', 100)
-                    if self._gif_frame_delay < 20:
-                        self._gif_frame_delay = 100
+                # Load frames in background thread to avoid freezing the UI.
+                # (Same pattern as _build_video_preview.)
+                gif_file = self.current_file
+                placeholder = ctk.CTkLabel(preview_frame, text="⏳ Cargando preview...",
+                                           width=375, height=130)
+                placeholder.pack()
 
-                    for i, frame in enumerate(ImageSequence.Iterator(gif_img)):
-                        if i >= MAX_PREVIEW_FRAMES:
-                            break
-                        resized = frame.convert('RGBA')
-                        resized.thumbnail((375, 250), Image.Resampling.LANCZOS)
-                        photo = ImageTk.PhotoImage(resized)
-                        self._gif_frames.append(photo)
-                gc.collect()
+                def _load_gif_preview():
+                    MAX_PREVIEW_FRAMES = 60
+                    try:
+                        raw = gif_file.read_bytes()
+                        if raw and raw[-1] == 0x21:
+                            raw = raw[:-1] + b"\x3B"
+                        src = io.BytesIO(raw)
+                        pil_frames = []
+                        delay_ms = 100
+                        with Image.open(src) as gif_img:
+                            delay_ms = gif_img.info.get('duration', 100)
+                            if delay_ms < 20:
+                                delay_ms = 100
+                            for i, frame in enumerate(ImageSequence.Iterator(gif_img)):
+                                if i >= MAX_PREVIEW_FRAMES:
+                                    break
+                                if self.current_file != gif_file:
+                                    return  # user switched file — abort
+                                resized = frame.convert('RGBA')
+                                resized.thumbnail((375, 250), Image.Resampling.LANCZOS)
+                                pil_frames.append(resized)
+                        gc.collect()
 
-                if self._gif_frames:
-                    preview_label = ctk.CTkLabel(preview_frame, text="", image=self._gif_frames[0])
-                    preview_label.image = self._gif_frames[0]
-                    preview_label.pack()
-                    # Iniciar animacion
-                    if len(self._gif_frames) > 1:
-                        self._gif_after_id = self.root.after(
-                            self._gif_frame_delay, self._animate_gif, preview_label)
+                        def install():
+                            if self.current_file != gif_file:
+                                return
+                            if not placeholder.winfo_exists():
+                                return
+                            try:
+                                self._stop_gif_animation()
+                                self._gif_frames = [ImageTk.PhotoImage(f) for f in pil_frames]
+                                self._gif_frame_index = 0
+                                self._gif_frame_delay = delay_ms
+                                if not self._gif_frames:
+                                    placeholder.configure(text="(preview vacío)")
+                                    return
+                                placeholder.destroy()
+                                lbl = ctk.CTkLabel(preview_frame, text="",
+                                                   image=self._gif_frames[0])
+                                lbl.image = self._gif_frames[0]
+                                lbl.pack()
+                                if len(self._gif_frames) > 1:
+                                    self._gif_after_id = self.root.after(
+                                        self._gif_frame_delay, self._animate_gif, lbl)
+                            except Exception as e:
+                                self.log_message(f"Error mostrando preview GIF: {e}", "WARNING")
+                            finally:
+                                pil_frames.clear()
+                                gc.collect()
+
+                        self.update_queue.put((install, ()))
+                    except Exception as e:
+                        def _fail():
+                            if placeholder.winfo_exists():
+                                placeholder.configure(text="(preview no disponible)")
+                        self.update_queue.put((_fail, ()))
+
+                threading.Thread(target=_load_gif_preview, daemon=True).start()
 
             elif ext in ('.jpg', '.jpeg', '.png', '.bmp', '.webp'):
                 # Mostrar preview de imagen estatica
@@ -585,13 +627,16 @@ class GUIMethodsMixin:
                          text_color=Colors.TEXT_SECONDARY,
                          justify="left").pack(anchor="w", pady=(5, 0))
 
+            _ct_text = ""
             if hasattr(self, 'content_analysis') and self.content_analysis:
-                content_type = self.content_analysis.get('type', 'unknown')
-                confidence = self.content_analysis.get('confidence', 0) * 100
-                ctk.CTkLabel(info_frame,
-                             text=f"Tipo: {content_type} ({confidence:.0f}%)",
-                             font=("Segoe UI", 9, "bold"),
-                             text_color=Colors.ACCENT).pack(anchor="w", pady=(10, 0))
+                _ct = self.content_analysis.get('type', 'unknown')
+                _cf = self.content_analysis.get('confidence', 0) * 100
+                _ct_text = f"Tipo: {_ct} ({_cf:.0f}%)"
+            self._content_type_label = ctk.CTkLabel(
+                info_frame, text=_ct_text,
+                font=("Segoe UI", 9, "bold"),
+                text_color=Colors.ACCENT)
+            self._content_type_label.pack(anchor="w", pady=(10, 0))
 
             self.log_message(f"Archivo seleccionado: {self.current_file.name}")
             self.update_status("Archivo cargado", 100, "✅")
@@ -631,11 +676,17 @@ class GUIMethodsMixin:
                             self.update_model_info()
                             break
 
-                    # Mostrar info actualizada
-                    self.show_file_info()
+                    # Actualizar etiqueta de tipo de contenido en el panel existente
+                    content_type = self.content_analysis.get('type', 'unknown')
+                    confidence = self.content_analysis.get('confidence', 0) * 100
+                    if hasattr(self, '_content_type_label'):
+                        try:
+                            self._content_type_label.configure(
+                                text=f"Tipo: {content_type} ({confidence:.0f}%)")
+                        except Exception:
+                            pass
 
                     # Log
-                    content_type = self.content_analysis.get('type', 'unknown')
                     self.log_message(f"Tipo detectado: {content_type}", "SUCCESS")
                     self.log_message(f"Modelo recomendado: {recommended_model}", "SUCCESS")
 
@@ -752,9 +803,9 @@ class GUIMethodsMixin:
 
                 # CORRECCIÓN 1: Crear directorio temporal más robusto
                 if getattr(sys, 'frozen', False):
-                    base_temp = Path(sys.executable).parent / "temp"
+                    base_temp = Path(sys.executable).parent / "SteamWorkshopAppData" / "temp"
                 else:
-                    base_temp = Path("temp")
+                    base_temp = Path("SteamWorkshopAppData/temp")
 
                 unique_id = str(uuid.uuid4())[:8]
                 temp_dir = base_temp / f"process_{unique_id}"
@@ -2227,9 +2278,9 @@ class GUIMethodsMixin:
             self._stop_gif_animation()
             # Limpiar archivos temporales (ruta según modo frozen o dev)
             if getattr(sys, 'frozen', False):
-                temp_dir = Path(sys.executable).parent / "temp"
+                temp_dir = Path(sys.executable).parent / "SteamWorkshopAppData" / "temp"
             else:
-                temp_dir = Path("temp")
+                temp_dir = Path("SteamWorkshopAppData/temp")
             if temp_dir.exists():
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -2342,74 +2393,96 @@ class GUIMethodsMixin:
         self._run_cancellable(process)
 
     def fragment_for_steam(self):
-        """Fragmentar para Steam - elige formato Workshop o Artwork Showcase"""
+        """Unified fragmentation dialog — all Steam format options in one place."""
         if not self.current_file:
             self._ui_warn("Advertencia", "Primero selecciona un archivo")
             return
 
-        # Mostrar dialogo de seleccion de formato
-        dialog = ctk.CTkToplevel(self.root)
-        dialog.title("Seleccionar formato de fragmentación")
-        dialog.geometry("420x310")
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        dialog.grab_set()
+        dlg = ctk.CTkToplevel(self.root)
+        dlg.title("Fragmentar para Steam")
+        dlg.geometry("500x590")
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
 
-        # Centrar dialogo
-        dialog.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() - 420) // 2
-        y = self.root.winfo_y() + (self.root.winfo_height() - 310) // 2
-        dialog.geometry(f"+{x}+{y}")
+        dlg.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - 500) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - 590) // 2
+        dlg.geometry(f"+{x}+{y}")
 
-        ctk.CTkLabel(
-            dialog, text="¿Qué formato deseas?",
-            font=("Segoe UI", 16, "bold")
-        ).pack(pady=(20, 15))
+        ctk.CTkLabel(dlg, text="Fragmentar para Steam",
+                     font=("Segoe UI", 16, "bold")).pack(pady=(16, 2))
+        ctk.CTkLabel(dlg, text=f"Archivo: {self.current_file.name}",
+                     font=("Segoe UI", 10), text_color="#aaaaaa").pack(pady=(0, 8))
 
-        ctk.CTkLabel(
-            dialog, text=f"Archivo: {self.current_file.name}",
-            font=("Segoe UI", 11),
-            text_color="#aaaaaa"
-        ).pack(pady=(0, 15))
+        var = ctk.StringVar(value="workshop_5part")
 
-        def choose_workshop():
-            dialog.destroy()
-            self._fragment_workshop_flow()
+        scroll = ctk.CTkScrollableFrame(dlg, height=400)
+        scroll.pack(fill="both", expand=True, padx=16, pady=(0, 6))
 
-        def choose_artwork():
-            dialog.destroy()
-            self.fragment_for_artwork_direct()
+        def _section(text):
+            ctk.CTkLabel(scroll, text=text, font=("Segoe UI", 10, "bold"),
+                         text_color="#888888").pack(anchor="w", padx=8, pady=(10, 2))
 
-        # Boton Workshop Showcase
-        ws_btn = ctk.CTkButton(
-            dialog,
-            text="Workshop Showcase (5 partes)\n638x354 px cada una",
-            command=choose_workshop,
-            height=50, corner_radius=8,
-            font=("Segoe UI", 12),
-            fg_color="#c0392b", hover_color="#962d22"
-        )
-        ws_btn.pack(fill="x", padx=30, pady=(0, 10))
+        def _opt(key, label, sub=""):
+            f = ctk.CTkFrame(scroll, fg_color="transparent")
+            f.pack(fill="x", padx=4, pady=1)
+            ctk.CTkRadioButton(f, text=label, variable=var, value=key,
+                               font=("Segoe UI", 12)).pack(anchor="w", padx=8)
+            if sub:
+                ctk.CTkLabel(f, text=f"    {sub}", font=("Segoe UI", 9),
+                             text_color="#777").pack(anchor="w", padx=8)
 
-        # Boton Artwork Showcase
-        art_btn = ctk.CTkButton(
-            dialog,
-            text="Artwork Showcase (2 paneles)\n506x506 + 100x506 px",
-            command=choose_artwork,
-            height=50, corner_radius=8,
-            font=("Segoe UI", 12),
-            fg_color="#8e44ad", hover_color="#6c3483"
-        )
-        art_btn.pack(fill="x", padx=30, pady=(0, 10))
+        _section("STEAM WORKSHOP PROFILE")
+        _opt("workshop_5part", "Workshop Showcase — 5 partes",
+             "638 × 354 px por parte · GIF animado")
 
-        # Boton cancelar
-        ctk.CTkButton(
-            dialog, text="Cancelar", command=dialog.destroy,
-            height=32, corner_radius=8,
-            font=("Segoe UI", 11),
-            fg_color="transparent", hover_color="#333333",
-            border_width=1, border_color="#555555"
-        ).pack(pady=(5, 15))
+        _section("ARTWORK SHOWCASE")
+        _opt("artwork_2part",       "Main + Side (recomendado)",
+             "506 px main + 100 px side · GIF / imagen")
+        _opt("featured_630",        "Featured Artwork",
+             "630 × H · 1 slot grande (alto libre)")
+        _opt("artwork_single_630",  "Artwork Single",
+             "630 × 354 · sin side panel")
+        _opt("artwork_4grid",       "Artwork 4-grid",
+             "4 × 245 × 245 cuadrados")
+        _opt("panorama_5_630",      "Panorama (banner horizontal)",
+             "5 × 630 × 360 · banner ancho")
+
+        _section("SCREENSHOT SHOWCASE")
+        _opt("screenshot_638",  "Screenshot Simple",
+             "638 × 354 · 1 slot · file_type=5")
+        _opt("screenshot_4grid", "Screenshot 4-grid",
+             "4 × 638 × 354 · file_type=5")
+
+        _section("WORKSHOP SHOWCASE GRID")
+        _opt("workshop_5slot_150", "Workshop Grid 5 × 150",
+             "5 × 150 × 150 cuadrados")
+        _opt("workshop_5slot_119", "Workshop Grid 5 × 119",
+             "5 × 119 × 119 tamaño nativo")
+
+        btns = ctk.CTkFrame(dlg, fg_color="transparent")
+        btns.pack(fill="x", padx=16, pady=(0, 12))
+
+        def _go():
+            choice = var.get()
+            dlg.destroy()
+            if choice == "workshop_5part":
+                self._fragment_workshop_flow()
+            elif choice == "artwork_2part":
+                self.fragment_for_artwork_direct()
+            else:
+                self.fragment_for_showcase_preset(choice)
+
+        ctk.CTkButton(btns, text="Fragmentar", command=_go,
+                      fg_color="#c0392b", hover_color="#962d22",
+                      height=38, corner_radius=8,
+                      font=("Segoe UI", 12, "bold")).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btns, text="Cancelar", command=dlg.destroy,
+                      fg_color="transparent", hover_color="#333333",
+                      border_width=1, border_color="#555555",
+                      height=38, corner_radius=8,
+                      font=("Segoe UI", 11)).pack(side="left")
 
     def _fragment_workshop_flow(self):
         """Flujo original de fragmentación Workshop con opción de preview"""
@@ -2549,7 +2622,9 @@ class GUIMethodsMixin:
                     self.root.after(0, lambda p=list(artwork_panels): self._show_artwork_result_dialog(p))
 
                 else:
-                    raise Exception("La fragmentación Artwork falló")
+                    detail = getattr(self.processor, '_last_split_error', '') or ''
+                    self.log_message(f"Error FFmpeg: {detail}", "ERROR")
+                    raise Exception(f"La fragmentación Artwork falló.\n{detail}" if detail else "La fragmentación Artwork falló")
 
             except Exception as e:
                 self.update_status("Error en fragmentación Artwork", 0, "❌")
@@ -2719,7 +2794,7 @@ class GUIMethodsMixin:
                       width=130).pack(side="left", padx=4)
 
         ctk.CTkButton(btns, text="🚀 Abrir Upload Tool",
-                      command=lambda f=list(fragments): (dlg.destroy(), self._launch_upload_tool(f)),
+                      command=lambda f=list(fragments), p=preset: (dlg.destroy(), self._launch_upload_tool(f, preset=p)),
                       fg_color="#16a34a", hover_color="#15803d",
                       width=160).pack(side="left", padx=4)
 
@@ -2733,32 +2808,61 @@ class GUIMethodsMixin:
         frag_dir = panels[0].parent
         dlg = ctk.CTkToplevel(self.root)
         dlg.title("Artwork Showcase Listo")
-        dlg.geometry("520x280")
+        dlg.geometry("580x420")
         dlg.grab_set()
 
         ctk.CTkLabel(dlg, text="Artwork Showcase completado",
                      font=("Segoe UI", 14, "bold")).pack(pady=(14, 4))
+        ctk.CTkLabel(dlg,
+            text="Subir como: artwork (file_type=3)  |  506px main + 100px side",
+            text_color="#888", font=("Segoe UI", 10)).pack()
 
-        flist = ctk.CTkScrollableFrame(dlg, height=100, label_text="Paneles generados")
-        flist.pack(fill="x", padx=14, pady=(0, 8))
+        flist = ctk.CTkScrollableFrame(dlg, height=80, label_text="Paneles generados")
+        flist.pack(fill="x", padx=14, pady=(6, 4))
         for f in panels:
             mb = f.stat().st_size / (1024 * 1024)
             ctk.CTkLabel(flist, text=f"  {f.name}  —  {mb:.2f} MB",
                          anchor="w", font=("Consolas", 10)).pack(anchor="w", padx=6, pady=1)
 
+        _js_artwork = (
+            "$J('[name=consumer_app_id]').val(767);\n"
+            "$J('[name=file_type]').val(3);\n"
+            "$J('[name=visibility]').val(0);"
+        )
+        ctk.CTkLabel(dlg, text="Consola del navegador (F12 → Console) — pega ANTES de guardar:",
+                     font=("Segoe UI", 10, "bold"), anchor="w").pack(anchor="w", padx=14, pady=(6, 0))
+        js_box = ctk.CTkTextbox(dlg, height=60, font=("Consolas", 10))
+        js_box.pack(fill="x", padx=14, pady=(2, 2))
+        js_box.insert("end", _js_artwork)
+        js_box.configure(state="disabled")
+
+        ctk.CTkLabel(dlg,
+            text="  Sube ambos archivos, luego ve a Editar Perfil → Artwork Showcase\n"
+                 "  → activa layout 2 columnas y asigna main y side a cada slot.",
+            text_color="#f59e0b", font=("Segoe UI", 10), justify="left",
+        ).pack(anchor="w", padx=14, pady=(0, 6))
+
         btns = ctk.CTkFrame(dlg, fg_color="transparent")
-        btns.pack(fill="x", padx=14, pady=8)
+        btns.pack(fill="x", padx=14, pady=6)
+
+        copy_btn = ctk.CTkButton(btns, text="📋 Copiar JS", width=110)
+        def _copy_js():
+            dlg.clipboard_clear()
+            dlg.clipboard_append(_js_artwork)
+            copy_btn.configure(text="✅ Copiado!")
+            dlg.after(2000, lambda: copy_btn.configure(text="📋 Copiar JS"))
+        copy_btn.configure(command=_copy_js)
+        copy_btn.pack(side="left", padx=4)
 
         def _open_folder():
             try:
                 os.startfile(str(frag_dir))
             except Exception:
                 pass
-
         ctk.CTkButton(btns, text="📁 Abrir carpeta", command=_open_folder,
                       width=130).pack(side="left", padx=4)
         ctk.CTkButton(btns, text="🚀 Abrir Upload Tool",
-                      command=lambda f=panels: (dlg.destroy(), self._launch_upload_tool(f)),
+                      command=lambda f=panels: (dlg.destroy(), self._launch_upload_tool(f, preset="artwork_2part")),
                       fg_color="#16a34a", hover_color="#15803d",
                       width=160).pack(side="left", padx=4)
         ctk.CTkButton(btns, text="Cerrar", command=dlg.destroy,

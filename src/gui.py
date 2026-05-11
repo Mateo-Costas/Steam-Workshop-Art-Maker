@@ -176,7 +176,6 @@ class WorkshopArtGUI(GUIMethodsMixin):
             ("mp4_to_gif",        self.convert_mp4_to_gif,  Colors.WARNING),
             ("enhance_animation", self.enhance_animation,   Colors.WARNING),
             ("fragment_steam",    self.fragment_for_steam,   Colors.DANGER),
-            ("fragment_showcase", self.fragment_for_showcase_preset, Colors.DANGER),
             ("optimize_size",     self.optimize_to_steam_limit, Colors.SUCCESS),
         ]
 

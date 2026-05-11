@@ -91,11 +91,10 @@ def check_and_download_dependencies():
         log_to_splash(log_widget, "🎮 WorkshopArt PRO v1.0 - Inicializando...")
         log_to_splash(log_widget, "🔍 Verificando sistema...")
         
-        # Crear directorios necesarios
-        directories = ["models", "logs", "temp"]
-        for dir_name in directories:
-            Path(dir_name).mkdir(exist_ok=True)
-        log_to_splash(log_widget, f"✅ Directorios creados: {', '.join(directories)}")
+        # Crear directorios necesarios (todos dentro de data/)
+        for dir_name in ["SteamWorkshopAppData/models", "SteamWorkshopAppData/logs", "SteamWorkshopAppData/temp"]:
+            Path(dir_name).mkdir(parents=True, exist_ok=True)
+        log_to_splash(log_widget, "✅ Directorios creados en data/")
         
         # 1. Verificar/Descargar FFmpeg
         status_label.config(text="Verificando FFmpeg...")
@@ -111,7 +110,7 @@ def check_and_download_dependencies():
         status_label.config(text="Verificando modelos de IA...")
         log_to_splash(log_widget, "🔍 Verificando modelos de IA...")
         
-        models_dir = Path("models")
+        models_dir = Path("SteamWorkshopAppData/models")
         model_files = list(models_dir.glob("*.bin"))
         
         if len(model_files) < 3:  # Necesitamos al menos 3 modelos
@@ -273,7 +272,7 @@ def download_ai_models(log_widget, status_label):
         
         log_to_splash(log_widget, f"📦 Descargando modelos IA ({total_size/(1024*1024):.1f} MB)...")
         
-        with open("models_temp.zip", "wb") as f:
+        with open("SteamWorkshopAppData/temp/models_temp.zip", "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
@@ -289,13 +288,13 @@ def download_ai_models(log_widget, status_label):
         extracted_models = 0
         extracted_exe = False
         
-        with zipfile.ZipFile("models_temp.zip", 'r') as zip_ref:
+        with zipfile.ZipFile("SteamWorkshopAppData/temp/models_temp.zip", 'r') as zip_ref:
             for file_info in zip_ref.filelist:
                 filename = Path(file_info.filename).name
                 
                 # Extraer archivos de modelos (.bin y .param)
                 if filename.endswith(('.bin', '.param')):
-                    target_path = Path("models") / filename
+                    target_path = Path("SteamWorkshopAppData/models") / filename
                     
                     with zip_ref.open(file_info) as source, open(target_path, "wb") as target:
                         shutil.copyfileobj(source, target)
@@ -315,7 +314,7 @@ def download_ai_models(log_widget, status_label):
                     log_to_splash(log_widget, f"  🤖 Ejecutable IA extraído: {exe_name}")
         
         # Limpiar archivo temporal
-        os.remove("models_temp.zip")
+        os.remove("SteamWorkshopAppData/temp/models_temp.zip")
         log_to_splash(log_widget, "🧹 Archivos temporales limpiados")
         
         # Verificar extracción
@@ -336,8 +335,8 @@ def create_default_config():
         "paths": {
             "ffmpeg": "ffmpeg.exe",
             "realesrgan": ".",
-            "models": "models",
-            "temp_dir": "temp"
+            "models": "SteamWorkshopAppData/models",
+            "temp_dir": "SteamWorkshopAppData/temp"
         },
         "steam_profile": {
             "width": 638,
@@ -440,10 +439,15 @@ def run_upload_tool():
         sys.path.insert(0, str(ROOT / "src"))
         from upload_tool import UploadApp
         _preload = []
+        _preset_key = None
         if '--fragments' in sys.argv:
             idx = sys.argv.index('--fragments')
             _preload = [Path(p) for p in sys.argv[idx + 1:] if not p.startswith('--')]
-        app = UploadApp(preloaded_files=_preload)
+        if '--preset' in sys.argv:
+            idx = sys.argv.index('--preset')
+            if idx + 1 < len(sys.argv):
+                _preset_key = sys.argv[idx + 1]
+        app = UploadApp(preloaded_files=_preload, preset_key=_preset_key)
         app.mainloop()
     except Exception as e:
         import tkinter as _tk

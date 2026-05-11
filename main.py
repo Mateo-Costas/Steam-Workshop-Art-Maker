@@ -18,11 +18,13 @@ sys.path.insert(0, str(_project_root))
 # cualquier print() o traceback revienta con AttributeError. Redirigimos a
 # un archivo de log para no perder la traza y evitar crashes silenciosos.
 # ---------------------------------------------------------------------------
+_APP_DATA = (Path(sys.executable).parent if getattr(sys, 'frozen', False)
+             else _project_root) / "SteamWorkshopAppData"
+
 if sys.stdout is None or sys.stderr is None:
-    _logs_root = (Path(sys.executable).parent if getattr(sys, 'frozen', False)
-                  else _project_root) / "logs"
+    _logs_root = _APP_DATA / "logs"
     try:
-        _logs_root.mkdir(exist_ok=True)
+        _logs_root.mkdir(parents=True, exist_ok=True)
         _log_file = open(_logs_root / "runtime.log", "a", encoding="utf-8",
                          buffering=1)  # line-buffered
         sys.stdout = _log_file
@@ -107,11 +109,10 @@ def check_and_download_dependencies():
         log_to_splash(log_widget, "🎮 WorkshopArt PRO v1.0 - Inicializando...")
         log_to_splash(log_widget, "🔍 Verificando sistema...")
         
-        # Crear directorios necesarios
-        directories = ["models", "logs", "temp"]
-        for dir_name in directories:
-            Path(dir_name).mkdir(exist_ok=True)
-        log_to_splash(log_widget, f"✅ Directorios creados: {', '.join(directories)}")
+        # Crear directorios necesarios dentro de SteamWorkshopAppData/
+        for sub in ("models", "logs", "temp", "rife"):
+            (_APP_DATA / sub).mkdir(parents=True, exist_ok=True)
+        log_to_splash(log_widget, f"✅ Directorios creados en SteamWorkshopAppData/")
         
         # 1. Verificar/Descargar FFmpeg
         status_label.config(text="Verificando FFmpeg...")
@@ -127,7 +128,7 @@ def check_and_download_dependencies():
         status_label.config(text="Verificando modelos de IA...")
         log_to_splash(log_widget, "🔍 Verificando modelos de IA...")
 
-        models_dir = Path("models")
+        models_dir = _APP_DATA / "models"
         model_files = list(models_dir.glob("*.bin"))
 
         if len(model_files) < 3:  # Necesitamos al menos 3 modelos
@@ -150,6 +151,20 @@ def check_and_download_dependencies():
                               "   (La interpolación a 60fps estará deshabilitada)")
         else:
             log_to_splash(log_widget, "✅ RIFE disponible")
+
+        # 2c. Verificar/Descargar gifski (encoder GIF de alta calidad)
+        status_label.config(text="Verificando gifski...")
+        log_to_splash(log_widget, "🔍 Verificando gifski (encoder GIF)...")
+        if not check_gifski_exists():
+            log_to_splash(log_widget, "📥 gifski no encontrado, descargando...")
+            try:
+                download_gifski(log_widget, status_label)
+            except Exception as _gifski_err:
+                log_to_splash(log_widget, f"⚠️ gifski no se pudo descargar: {_gifski_err}")
+                log_to_splash(log_widget,
+                              "   (Artwork Showcase usará ffmpeg como fallback)")
+        else:
+            log_to_splash(log_widget, "✅ gifski disponible")
         
         # 3. Verificar configuración
         if not Path("config.json").exists():
@@ -233,7 +248,7 @@ def download_ffmpeg_portable(log_widget, status_label):
         
         log_to_splash(log_widget, f"📦 Descargando FFmpeg ({total_size/(1024*1024):.1f} MB)...")
         
-        with open("ffmpeg_temp.zip", "wb") as f:
+        with open(_APP_DATA / "temp" / "ffmpeg_temp.zip", "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
@@ -247,7 +262,7 @@ def download_ffmpeg_portable(log_widget, status_label):
         log_to_splash(log_widget, "📂 Extrayendo FFmpeg...")
         
         ffmpeg_found = False
-        with zipfile.ZipFile("ffmpeg_temp.zip", 'r') as zip_ref:
+        with zipfile.ZipFile(_APP_DATA / "temp" / "ffmpeg_temp.zip", 'r') as zip_ref:
             for file_info in zip_ref.filelist:
                 # Buscar el ejecutable FFmpeg en cualquier subdirectorio
                 if file_info.filename.endswith("ffmpeg.exe"):
@@ -267,7 +282,7 @@ def download_ffmpeg_portable(log_widget, status_label):
             raise Exception("No se encontró ffmpeg.exe en el archivo descargado")
         
         # Limpiar archivo temporal
-        os.remove("ffmpeg_temp.zip")
+        os.remove(_APP_DATA / "temp" / "ffmpeg_temp.zip")
         log_to_splash(log_widget, "🧹 Archivos temporales limpiados")
         
         # Verificar que funciona
@@ -304,7 +319,7 @@ def download_ai_models(log_widget, status_label):
         
         log_to_splash(log_widget, f"📦 Descargando modelos IA ({total_size/(1024*1024):.1f} MB)...")
         
-        with open("models_temp.zip", "wb") as f:
+        with open(_APP_DATA / "temp" / "models_temp.zip", "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
                     f.write(chunk)
@@ -320,13 +335,13 @@ def download_ai_models(log_widget, status_label):
         extracted_models = 0
         extracted_exe = False
         
-        with zipfile.ZipFile("models_temp.zip", 'r') as zip_ref:
+        with zipfile.ZipFile(_APP_DATA / "temp" / "models_temp.zip", 'r') as zip_ref:
             for file_info in zip_ref.filelist:
                 filename = Path(file_info.filename).name
                 
                 # Extraer archivos de modelos (.bin y .param)
                 if filename.endswith(('.bin', '.param')):
-                    target_path = Path("models") / filename
+                    target_path = _APP_DATA / "models" / filename
                     
                     with zip_ref.open(file_info) as source, open(target_path, "wb") as target:
                         shutil.copyfileobj(source, target)
@@ -346,7 +361,7 @@ def download_ai_models(log_widget, status_label):
                     log_to_splash(log_widget, f"  🤖 Ejecutable IA extraído: {exe_name}")
         
         # Limpiar archivo temporal
-        os.remove("models_temp.zip")
+        os.remove(_APP_DATA / "temp" / "models_temp.zip")
         log_to_splash(log_widget, "🧹 Archivos temporales limpiados")
         
         # Verificar extracción
@@ -379,7 +394,7 @@ def download_rife(log_widget, status_label):
     log_to_splash(log_widget,
                   f"📦 Descargando RIFE ({total_size/(1024*1024):.1f} MB)...")
 
-    with open("rife_temp.zip", "wb") as f:
+    with open(_APP_DATA / "temp" / "rife_temp.zip", "wb") as f:
         for chunk in response.iter_content(chunk_size=8192):
             if chunk:
                 f.write(chunk)
@@ -392,7 +407,7 @@ def download_rife(log_widget, status_label):
     log_to_splash(log_widget, "📂 Extrayendo RIFE + modelos...")
     extracted_exe = False
     extracted_models = 0
-    with zipfile.ZipFile("rife_temp.zip", 'r') as zip_ref:
+    with zipfile.ZipFile(_APP_DATA / "temp" / "rife_temp.zip", 'r') as zip_ref:
         for info in zip_ref.filelist:
             filename = Path(info.filename).name
             # exe
@@ -404,9 +419,9 @@ def download_rife(log_widget, status_label):
             # modelos (carpetas rife-*, contienen .bin/.param)
             elif "/rife" in info.filename.replace("\\", "/") and \
                     filename.endswith((".bin", ".param")):
-                # Preservar estructura de carpetas (e.g. rife-v4.6/flownet.bin)
+                # Preservar estructura dentro de SteamWorkshopAppData/rife/
                 rel = Path(*Path(info.filename).parts[1:])  # strip top folder
-                tgt = Path(".") / rel
+                tgt = _APP_DATA / "rife" / rel
                 tgt.parent.mkdir(parents=True, exist_ok=True)
                 with zip_ref.open(info) as src, open(tgt, "wb") as dst:
                     shutil.copyfileobj(src, dst)
@@ -414,7 +429,7 @@ def download_rife(log_widget, status_label):
                     extracted_models += 1
 
     try:
-        os.remove("rife_temp.zip")
+        os.remove(_APP_DATA / "temp" / "rife_temp.zip")
     except Exception:
         pass
 
@@ -425,6 +440,104 @@ def download_rife(log_widget, status_label):
         raise Exception("rife-ncnn-vulkan.exe no encontrado en el zip")
 
 
+def check_gifski_exists():
+    """Verificar si gifski está disponible"""
+    try:
+        import subprocess
+        r = subprocess.run(["gifski", "--version"], capture_output=True, timeout=5)
+        if r.returncode == 0:
+            return True
+    except Exception:
+        pass
+    return Path("gifski.exe").exists()
+
+
+def download_gifski(log_widget, status_label):
+    """Descargar gifski desde GitHub releases (encoder GIF de alta calidad)"""
+    import requests
+    import zipfile
+    import shutil
+
+    status_label.config(text="Descargando gifski...")
+    log_to_splash(log_widget, "🎞️  gifski — encoder GIF con compresión perceptual avanzada")
+
+    download_url = None
+    version_name = "?"
+
+    # Intentar obtener la última versión por la API de GitHub
+    try:
+        api_resp = requests.get(
+            "https://api.github.com/repos/ImageOptim/gifski/releases/latest",
+            timeout=12,
+            headers={"Accept": "application/vnd.github.v3+json"},
+        )
+        api_resp.raise_for_status()
+        release_data = api_resp.json()
+        version_name = release_data.get("tag_name", "?")
+        assets = release_data.get("assets", [])
+
+        # Buscar ZIP de Windows (nombre con "win" primero, cualquier zip como fallback)
+        for asset in assets:
+            if "win" in asset["name"].lower() and asset["name"].endswith(".zip"):
+                download_url = asset["browser_download_url"]
+                break
+        if not download_url:
+            for asset in assets:
+                if asset["name"].endswith(".zip"):
+                    download_url = asset["browser_download_url"]
+                    break
+    except Exception as api_err:
+        log_to_splash(log_widget, f"   API GitHub: {api_err} — usando URL directa")
+
+    # Fallback a versión conocida
+    if not download_url:
+        version_name = "1.32.0"
+        download_url = (
+            "https://github.com/ImageOptim/gifski/releases/download/"
+            f"{version_name}/gifski-{version_name}.zip"
+        )
+
+    log_to_splash(log_widget, f"📡 Descargando gifski {version_name}...")
+    resp = requests.get(download_url, stream=True, timeout=90)
+    resp.raise_for_status()
+
+    total_size = int(resp.headers.get("content-length", 0))
+    downloaded = 0
+    temp_zip = _APP_DATA / "temp" / "gifski_temp.zip"
+
+    log_to_splash(log_widget,
+                  f"📦 Descargando ({total_size / (1024*1024):.1f} MB)..." if total_size else "📦 Descargando...")
+    with open(temp_zip, "wb") as f:
+        for chunk in resp.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total_size > 0 and downloaded % (512 * 1024) == 0:
+                    pct = (downloaded / total_size) * 100
+                    log_to_splash(log_widget, f"  📊 {pct:.0f}%")
+
+    log_to_splash(log_widget, "📂 Extrayendo gifski.exe...")
+    gifski_found = False
+    with zipfile.ZipFile(temp_zip, "r") as zf:
+        for info in zf.filelist:
+            if Path(info.filename).name.lower() == "gifski.exe":
+                with zf.open(info) as src, open("gifski.exe", "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                gifski_found = True
+                log_to_splash(log_widget, "✅ gifski.exe extraído")
+                break
+
+    try:
+        os.remove(temp_zip)
+    except Exception:
+        pass
+
+    if not gifski_found:
+        raise Exception("gifski.exe no encontrado dentro del ZIP descargado")
+
+    log_to_splash(log_widget, "✅ gifski instalado — compresión GIF avanzada activa para Artwork Showcase")
+
+
 def create_default_config():
     """Crear configuración por defecto"""
     import json
@@ -433,8 +546,8 @@ def create_default_config():
         "paths": {
             "ffmpeg": "ffmpeg.exe",
             "realesrgan": ".",
-            "models": "models",
-            "temp_dir": "temp"
+            "models": "SteamWorkshopAppData/models",
+            "temp_dir": "SteamWorkshopAppData/temp"
         },
         "steam_profile": {
             "width": 638,

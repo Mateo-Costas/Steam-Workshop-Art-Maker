@@ -11,8 +11,8 @@ class Config:
         "paths": {
             "ffmpeg": "ffmpeg",
             "realesrgan": ".",
-            "models": "models",
-            "temp_dir": "temp"
+            "models": "SteamWorkshopAppData/models",
+            "temp_dir": "SteamWorkshopAppData/temp"
         },
         "steam_profile": {
             "width": 638,

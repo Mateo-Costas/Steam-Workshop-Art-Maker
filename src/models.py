@@ -214,7 +214,7 @@ class ModelManager:
         if getattr(sys, 'frozen', False):
             self.project_dir = Path(sys.executable).parent
             base_path = Path(sys.executable).parent
-            self.models_dir = base_path / "models"
+            self.models_dir = base_path / "SteamWorkshopAppData" / "models"
         else:
             self.project_dir = Path.cwd()
             self.models_dir = Path(models_dir)
@@ -326,8 +326,8 @@ class ModelManager:
                 return True
             
             # Crear directorio temporal
-            temp_dir = Path("temp_download")
-            temp_dir.mkdir(exist_ok=True)
+            temp_dir = Path("SteamWorkshopAppData/temp")
+            temp_dir.mkdir(parents=True, exist_ok=True)
             
             # Descargar paquete principal (Real-ESRGAN)
             package = self.DOWNLOAD_PACKAGES[0]

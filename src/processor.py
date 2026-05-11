@@ -42,14 +42,18 @@ class SteamProcessor:
         
         # Rutas de ejecutables
         self.ffmpeg_path = self._find_executable("ffmpeg")
+        self.gifski_path = self._find_executable("gifski")
         self.realesrgan_path = self._find_executable("realesrgan-ncnn-vulkan")
         self.realcugan_path = self._find_executable("realcugan-ncnn-vulkan")
         self.rife_path = self._find_executable("rife-ncnn-vulkan")
 
         logger.info(f"FFmpeg: {self.ffmpeg_path}")
+        logger.info(f"gifski: {self.gifski_path or 'no encontrado (opcional)'}")
         logger.info(f"Real-ESRGAN: {self.realesrgan_path}")
         logger.info(f"Real-CUGAN: {self.realcugan_path}")
         logger.info(f"RIFE: {self.rife_path}")
+
+        self._last_split_error = ""
 
         # Cache for GPU detection (avoid repeated wmic/subprocess calls)
         self._gpu_cache: Optional[Tuple[bool, str]] = None
@@ -264,6 +268,10 @@ class SteamProcessor:
     def check_ffmpeg(self) -> bool:
         """Verificar disponibilidad de ffmpeg"""
         return self.ffmpeg_path is not None and self.ffmpeg_path.exists()
+
+    def check_gifski(self) -> bool:
+        """Verificar disponibilidad de gifski (encoder GIF de alta calidad)"""
+        return self.gifski_path is not None and self.gifski_path.exists()
     
     def extract_gif_frames(self, gif_path: Path, output_dir: Path) -> Tuple[Optional[List[Path]], Optional[int]]:
         """Extraer frames de un GIF"""
@@ -911,54 +919,160 @@ class SteamProcessor:
             
             logger.info(f"📊 Fragmentando en secciones de {section_width}x{height} px")
             
-            # Fragmentar usando ffmpeg con configuración mejorada
+            # Fragmentar: gifski primary (binary-search quality), ffmpeg fallback
             success = True
             created_parts = []
-            
-            for i in range(5):
-                left = i * section_width
-                output_path = output_dir / f"{gif_path.stem}_part_{i+1}.gif"
-                
-                logger.info(f"✂️ Creando parte {i+1}/5: {output_path.name}")
-                
-                # Comando ffmpeg mejorado para evitar artefactos
-                cmd = [
-                    str(self.ffmpeg_path),
-                    "-i", str(gif_path),
-                    "-vf", f"crop={section_width}:{height}:{left}:0,split[s0][s1];[s0]palettegen=max_colors=256:reserve_transparent=1:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
-                    "-y",
-                    str(output_path)
-                ]
-                
-                try:
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, **_NO_WINDOW_FLAGS)
-                    if result.returncode == 0:
-                        self._patch_gif_trailer(output_path)
+            MAX_BYTES = 5 * 1024 * 1024 - 16 * 1024
+            _use_gifski = self.check_gifski()
 
-                        # Verificar tamaño
-                        if not output_path.exists():
-                            logger.error(f"❌ Parte {i+1}: FFmpeg no creó el archivo")
+            _orig_fps = 25
+            try:
+                with Image.open(gif_path) as _fps_img:
+                    _dur = _fps_img.info.get('duration', 40) or 40
+                    _orig_fps = max(1, int(round(1000.0 / _dur)))
+            except Exception:
+                pass
+
+            import tempfile
+            _tmp = Path(tempfile.mkdtemp(prefix="wkart_steam_"))
+            _gifski_done = False
+            try:
+                # ── gifski: shared fps+quality for ALL 5 parts ───────────────
+                if _use_gifski:
+                    for fps_cap in [None, 24, 20, 15, 12, 10, 8, 6, 4, 3]:
+                        _fps_a = str(fps_cap) if fps_cap else str(_orig_fps)
+
+                        # Extract frames for all 5 parts at this fps tier
+                        _fds: dict = {}
+                        _ex_ok = True
+                        for i in range(5):
+                            left = i * section_width
+                            _vf = f"crop={section_width}:{height}:{left}:0"
+                            if fps_cap:
+                                _vf = f"fps={fps_cap}," + _vf
+                            fd = _tmp / f"fd_{fps_cap or 0}_p{i+1}"
+                            shutil.rmtree(fd, ignore_errors=True)
+                            fd.mkdir()
+                            r_ex = subprocess.run(
+                                [str(self.ffmpeg_path), "-y", "-i", str(gif_path),
+                                 "-vf", _vf, str(fd / "frame%06d.png")],
+                                capture_output=True, encoding='utf-8',
+                                errors='replace', timeout=120, **_NO_WINDOW_FLAGS)
+                            if r_ex.returncode != 0 or not any(fd.glob("frame*.png")):
+                                logger.warning(f"   gifski/extract parte {i+1} fps={_fps_a}: rc={r_ex.returncode}")
+                                _ex_ok = False
+                                break
+                            _fds[i] = fd
+
+                        if not _ex_ok:
+                            for fd in _fds.values():
+                                shutil.rmtree(fd, ignore_errors=True)
+                            continue
+
+                        # Binary-search shared quality where ALL 5 parts fit
+                        q_lo, q_hi = 10, 95
+                        _best_q = None
+                        _best_baks: dict = {}
+                        _best_sizes: dict = {}
+
+                        while q_lo <= q_hi:
+                            q = (q_lo + q_hi) // 2
+                            _res: dict = {}
+                            _all_fit = True
+                            for i in range(5):
+                                out_path = output_dir / f"{gif_path.stem}_part_{i+1}.gif"
+                                fd = _fds[i]
+                                r = subprocess.run(
+                                    [str(self.gifski_path), "--fps", _fps_a,
+                                     "--quality", str(q), "--repeat", "0",
+                                     "-o", str(out_path), str(fd / "frame*.png")],
+                                    capture_output=True, encoding='utf-8',
+                                    errors='replace', timeout=180, **_NO_WINDOW_FLAGS)
+                                if r.returncode != 0 or not out_path.exists():
+                                    logger.warning(f"   gifski parte {i+1} q={q} rc={r.returncode}")
+                                    _all_fit = False
+                                    break
+                                sz = out_path.stat().st_size
+                                logger.info(f"   gifski parte {i+1} q={q} fps={_fps_a} → {sz/1024/1024:.2f} MB")
+                                _res[i] = (out_path, sz)
+                                if sz > MAX_BYTES:
+                                    _all_fit = False
+                                    break
+
+                            if _all_fit and len(_res) == 5:
+                                _best_q = q
+                                for i, (path, sz) in _res.items():
+                                    bak = path.with_suffix("._gbest")
+                                    shutil.copy(path, bak)
+                                    _best_baks[i] = bak
+                                    _best_sizes[i] = sz
+                                q_lo = q + 1
+                            else:
+                                q_hi = q - 1
+
+                        for fd in _fds.values():
+                            shutil.rmtree(fd, ignore_errors=True)
+
+                        if _best_q is not None:
+                            for i in range(5):
+                                out_path = output_dir / f"{gif_path.stem}_part_{i+1}.gif"
+                                bak = _best_baks.get(i)
+                                if bak and bak.exists():
+                                    shutil.copy(bak, out_path)
+                                    try: bak.unlink()
+                                    except OSError: pass
+                                self._patch_gif_trailer(out_path)
+                                size_mb = _best_sizes[i] / (1024 * 1024)
+                                created_parts.append({"part": i+1, "path": out_path, "size": size_mb})
+                                logger.info(f"✅ Parte {i+1}: {size_mb:.2f} MB [gifski fps={_fps_a} q={_best_q}]")
+                            _gifski_done = True
+                            break
+
+                        for bak in _best_baks.values():
+                            try: bak.unlink()
+                            except OSError: pass
+
+                # ── ffmpeg fallback ───────────────────────────────────────────
+                if not _gifski_done:
+                    for i in range(5):
+                        left = i * section_width
+                        output_path = output_dir / f"{gif_path.stem}_part_{i+1}.gif"
+                        logger.info(f"✂️ Creando parte {i+1}/5: {output_path.name}")
+                        cmd = [
+                            str(self.ffmpeg_path), "-i", str(gif_path),
+                            "-vf", (
+                                f"crop={section_width}:{height}:{left}:0,"
+                                f"split[s0][s1];"
+                                f"[s0]palettegen=max_colors=256:reserve_transparent=1"
+                                f":stats_mode=diff[p];"
+                                f"[s1][p]paletteuse=dither=bayer:bayer_scale=5"
+                                f":diff_mode=rectangle"
+                            ),
+                            "-y", str(output_path)
+                        ]
+                        try:
+                            result = subprocess.run(
+                                cmd, capture_output=True, encoding='utf-8',
+                                errors='replace', timeout=60, **_NO_WINDOW_FLAGS)
+                            if result.returncode != 0:
+                                logger.error(f"❌ Error en parte {i+1}: {result.stderr[-200:]}")
+                                success = False
+                                break
+                        except Exception as e:
+                            logger.error(f"❌ Excepción en parte {i+1}: {e}")
                             success = False
                             break
+
+                        if not output_path.exists():
+                            logger.error(f"❌ Parte {i+1}: no se creó el archivo")
+                            success = False
+                            break
+                        self._patch_gif_trailer(output_path)
                         size_mb = output_path.stat().st_size / (1024 * 1024)
-                        created_parts.append({
-                            "part": i+1,
-                            "path": output_path,
-                            "size": size_mb
-                        })
-                        logger.info(f"✅ Parte {i+1} creada: {size_mb:.2f} MB")
-                    else:
-                        logger.error(f"❌ Error en parte {i+1}: {result.stderr}")
-                        success = False
-                        break
-                except subprocess.TimeoutExpired:
-                    logger.error(f"❌ Timeout en parte {i+1}")
-                    success = False
-                    break
-                except Exception as e:
-                    logger.error(f"❌ Excepción en parte {i+1}: {e}")
-                    success = False
-                    break
+                        created_parts.append({"part": i+1, "path": output_path, "size": size_mb})
+                        logger.info(f"✅ Parte {i+1}: {size_mb:.2f} MB [ffmpeg]")
+            finally:
+                shutil.rmtree(_tmp, ignore_errors=True)
             
             # Limpiar archivo temporal si se creó
             if gif_path != original_gif_path and gif_path.exists():
@@ -1008,6 +1122,53 @@ class SteamProcessor:
             logger.error(f"❌ Error en fragmentación: {e}")
             return False
 
+    def _gifski_optimal(self, frame_glob: str, out_path: Path,
+                        fps_arg: str, max_bytes: int,
+                        q_lo: int = 10, q_hi: int = 95) -> Optional[tuple]:
+        """Binary-search the highest gifski quality that produces a file ≤ max_bytes.
+
+        Returns (quality, file_size_bytes) or None if even q_lo is too large.
+        Converges in ≤ ceil(log2(q_hi - q_lo + 1)) ≈ 7 iterations.
+        """
+        # The binary search may overwrite out_path with a "too large" result after
+        # finding a good one.  Save a copy each time we beat the budget so we can
+        # restore the real best file at the end.
+        best = None
+        _bak = out_path.with_suffix("._gbest")
+        try:
+            while q_lo <= q_hi:
+                q = (q_lo + q_hi) // 2
+                r = subprocess.run(
+                    [str(self.gifski_path),
+                     "--fps", fps_arg,
+                     "--quality", str(q),
+                     "--repeat", "0",
+                     "-o", str(out_path),
+                     frame_glob],
+                    capture_output=True, encoding='utf-8', errors='replace',
+                    timeout=180, **_NO_WINDOW_FLAGS,
+                )
+                if r.returncode != 0 or not out_path.exists():
+                    logger.warning(f"   gifski q={q} rc={r.returncode}")
+                    q_hi = q - 1
+                    continue
+                size = out_path.stat().st_size
+                logger.info(f"   gifski q={q} fps={fps_arg} → {size / 1024 / 1024:.2f} MiB")
+                if size <= max_bytes:
+                    best = (q, size)
+                    shutil.copy(out_path, _bak)  # preserve this good result
+                    q_lo = q + 1
+                else:
+                    q_hi = q - 1
+        finally:
+            if best is not None and _bak.exists():
+                shutil.copy(_bak, out_path)  # restore actual best file
+            try:
+                _bak.unlink()
+            except OSError:
+                pass
+        return best
+
     def split_gif_for_artwork_showcase(self, gif_path: Path, output_dir=None) -> bool:
         """Fragmentar GIF en 2 partes (main 506 + side 100) para Steam Artwork Showcase.
 
@@ -1038,29 +1199,23 @@ class SteamProcessor:
         main_width = self.config.get('artwork_showcase.main_width', 506)
         side_width = self.config.get('artwork_showcase.side_width', 100)
         total_width = main_width + side_width  # 606
-        # Alto: showcase acepta cualquier alto. Preservar el del fuente (escalado
-        # proporcionalmente a 606 ancho). Config puede forzar un alto fijo.
-        forced_height = self.config.get('artwork_showcase.height', 0)  # 0 = auto
-        MAX_BYTES = 5 * 1024 * 1024 - 16 * 1024  # 5 MiB menos margen
+        forced_height = self.config.get('artwork_showcase.height', 0)
+        MAX_BYTES = 5 * 1024 * 1024 - 16 * 1024
         STEAM_HARD_MAX = 5 * 1024 * 1024
 
         logger.info(f"🎨 Fragmentando para Artwork Showcase: {gif_path}")
 
         try:
-            # Leer dimensiones y fps reales
             with Image.open(gif_path) as img:
                 orig_w, orig_h = img.size
                 orig_duration = img.info.get('duration', 100) or 100
             orig_fps = 1000.0 / max(1, orig_duration)
             logger.info(f"📐 Origen: {orig_w}x{orig_h} @ ~{orig_fps:.2f}fps")
 
-            # Calcular alto target preservando aspecto (o forzado por config)
             if forced_height and forced_height > 0:
                 target_height = int(forced_height)
             else:
                 target_height = max(1, round(orig_h * total_width / max(1, orig_w)))
-            # ffmpeg prefiere alto par para algunos codecs; GIF no exige pero
-            # mejor redondear a par para evitar artefactos en filtros.
             if target_height % 2 == 1:
                 target_height += 1
             logger.info(f"📐 Target: {main_width}+{side_width}={total_width} × {target_height}")
@@ -1070,102 +1225,201 @@ class SteamProcessor:
                 {"name": "artwork_side", "width": side_width, "left": main_width},
             ]
 
-            # Grados de calidad — primero intenta el máximo, baja si no cabe
-            # (colors, fps_cap). fps_cap=None = preservar fps original.
-            quality_ladder = [
+            _use_gifski = self.check_gifski()
+            logger.info(f"🎞️  Encoder: {'gifski + binary-search quality' if _use_gifski else 'ffmpeg'}")
+
+            # gifski: iterate fps tiers, binary-search quality at each tier to
+            # find the HIGHEST quality that still fits under MAX_BYTES.
+            # This maximises visual quality instead of the linear ladder which
+            # often overshoots and wastes available budget.
+            gifski_fps_tiers = [None, 24, 20, 15, 12, 10, 8, 6, 4, 3] if _use_gifski else []
+
+            # ffmpeg fallback ladder: (colors, fps_cap)
+            ffmpeg_ladder = [
                 (256, None),
                 (256, 24),
                 (192, 24),
                 (160, 20),
                 (128, 20),
-                (96, 15),
-                (64, 12),
+                ( 96, 15),
+                ( 64, 12),
+                ( 64,  8),
+                ( 48,  8),
+                ( 32,  6),
+                ( 24,  5),
+                ( 16,  4),
+                ( 16,  3),
             ]
 
             created_parts = []
             success = True
+            self._last_split_error = ""
 
-            for part in parts_config:
-                out_path = output_dir / f"{gif_path.stem}_{part['name']}.gif"
-                chosen = None
-                last_err = ""
-                for colors, fps_cap in quality_ladder:
-                    # Construir cadena de filtros: scale lanczos → crop → 2-pass palette
-                    fps_part = f"fps={fps_cap}," if fps_cap else ""
-                    # scale al total_width manteniendo aspecto a target_height
-                    scale = f"scale={total_width}:{target_height}:flags=lanczos+accurate_rnd+full_chroma_int"
-                    crop = f"crop={part['width']}:{target_height}:{part['left']}:0"
-                    # Palette en el MISMO clip recortado (por-zona → mejor fidelidad)
-                    filter_complex = (
-                        f"[0:v]{fps_part}{scale},{crop},split[a][b];"
-                        f"[a]palettegen=max_colors={colors}:stats_mode=full:reserve_transparent=1[p];"
-                        f"[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle"
-                    )
-                    cmd = [
-                        str(self.ffmpeg_path),
-                        "-i", str(gif_path),
-                        "-filter_complex", filter_complex,
-                        "-loop", "0",
-                        "-y",
-                        str(out_path),
-                    ]
-                    logger.info(f"✂️ {part['name']}: colors={colors} fps={fps_cap or 'orig'} → {out_path.name}")
-                    try:
-                        result = subprocess.run(cmd, capture_output=True, text=True,
-                                                timeout=180, **_NO_WINDOW_FLAGS)
-                        if result.returncode != 0:
-                            last_err = (result.stderr or "")[-400:]
-                            logger.warning(f"   ffmpeg rc={result.returncode}: {last_err[-200:]}")
-                            continue
-                        if not out_path.exists():
-                            last_err = "ffmpeg no creó el archivo"
-                            continue
-                        size = out_path.stat().st_size
-                        logger.info(f"   → {size/1024/1024:.2f} MiB (límite {STEAM_HARD_MAX/1024/1024:.2f})")
-                        if size <= MAX_BYTES:
-                            chosen = (colors, fps_cap, size)
+            # ── gifski: shared fps+quality for ALL parts ─────────────────────
+            # Both parts are tested at each candidate fps+quality so they always
+            # share the same fps — otherwise the two panels desync during playback.
+            _gifski_done = False
+            if _use_gifski:
+                for fps_cap in gifski_fps_tiers:
+                    _fps_arg = str(int(fps_cap)) if fps_cap else str(max(1, int(orig_fps)))
+                    fps_filter = f"fps={fps_cap}," if fps_cap else ""
+
+                    # Extract frames for every part at this fps tier
+                    _fds = {}
+                    _ex_ok = True
+                    for part in parts_config:
+                        _tmp = "_ga" if part["left"] == 0 else "_gb"
+                        fd = output_dir / _tmp
+                        shutil.rmtree(fd, ignore_errors=True)
+                        fd.mkdir(parents=True, exist_ok=True)
+                        vf = (f"{fps_filter}"
+                              f"scale={total_width}:{target_height}:flags=lanczos,"
+                              f"crop={part['width']}:{target_height}:{part['left']}:0")
+                        r = subprocess.run(
+                            [str(self.ffmpeg_path), "-i", str(gif_path),
+                             "-vf", vf, "-y", str(fd / "frame%06d.png")],
+                            capture_output=True, encoding='utf-8', errors='replace',
+                            timeout=120, **_NO_WINDOW_FLAGS)
+                        if r.returncode != 0 or not any(fd.glob("frame*.png")):
+                            logger.warning(f"   gifski/extract {part['name']} fps={_fps_arg}: rc={r.returncode}")
+                            _ex_ok = False
                             break
-                        # Demasiado grande — probar siguiente tier
-                    except subprocess.TimeoutExpired:
-                        last_err = "timeout"
-                        logger.warning(f"   timeout con colors={colors} fps={fps_cap}")
-                        continue
-                    except Exception as e:
-                        last_err = str(e)
-                        logger.warning(f"   excepción: {e}")
+                        _fds[part["name"]] = fd
+
+                    if not _ex_ok:
+                        for fd in _fds.values():
+                            shutil.rmtree(fd, ignore_errors=True)
                         continue
 
-                if chosen is None:
-                    logger.error(f"❌ {part['name']}: no se pudo generar bajo {STEAM_HARD_MAX/1024/1024:.2f} MiB. último error: {last_err}")
-                    success = False
-                    break
+                    # Binary-search shared quality where ALL parts fit under MAX_BYTES
+                    q_lo, q_hi = 10, 95
+                    _best_q = None
+                    _best_baks: dict = {}
+                    _best_sizes: dict = {}
 
-                self._patch_gif_trailer(out_path)
-                colors, fps_cap, size = chosen
-                size_mb = size / (1024 * 1024)
-                created_parts.append({
-                    "name": part['name'],
-                    "path": out_path,
-                    "size": size_mb,
-                    "colors": colors,
-                    "fps_cap": fps_cap,
-                })
-                logger.info(f"✅ {part['name']}: {size_mb:.2f} MiB (colors={colors}, fps={fps_cap or 'orig'})")
+                    while q_lo <= q_hi:
+                        q = (q_lo + q_hi) // 2
+                        _res = {}
+                        _all_fit = True
+                        for part in parts_config:
+                            out_path = output_dir / f"{gif_path.stem}_{part['name']}.gif"
+                            fd = _fds[part["name"]]
+                            r = subprocess.run(
+                                [str(self.gifski_path), "--fps", _fps_arg,
+                                 "--quality", str(q), "--repeat", "0",
+                                 "-o", str(out_path), str(fd / "frame*.png")],
+                                capture_output=True, encoding='utf-8', errors='replace',
+                                timeout=180, **_NO_WINDOW_FLAGS)
+                            if r.returncode != 0 or not out_path.exists():
+                                logger.warning(f"   gifski {part['name']} q={q} rc={r.returncode}")
+                                _all_fit = False
+                                break
+                            sz = out_path.stat().st_size
+                            logger.info(f"   gifski {part['name']} q={q} fps={_fps_arg} → {sz/1024/1024:.2f} MiB")
+                            _res[part["name"]] = (out_path, sz)
+                            if sz > MAX_BYTES:
+                                _all_fit = False
+                                break
+
+                        if _all_fit and len(_res) == len(parts_config):
+                            _best_q = q
+                            for name, (path, sz) in _res.items():
+                                bak = path.with_suffix("._gbest")
+                                shutil.copy(path, bak)
+                                _best_baks[name] = bak
+                                _best_sizes[name] = sz
+                            q_lo = q + 1
+                        else:
+                            q_hi = q - 1
+
+                    # Cleanup frame dirs
+                    for fd in _fds.values():
+                        shutil.rmtree(fd, ignore_errors=True)
+
+                    if _best_q is not None:
+                        for part in parts_config:
+                            name = part["name"]
+                            out_path = output_dir / f"{gif_path.stem}_{name}.gif"
+                            bak = _best_baks.get(name)
+                            if bak and bak.exists():
+                                shutil.copy(bak, out_path)
+                                try: bak.unlink()
+                                except OSError: pass
+                            self._patch_gif_trailer(out_path)
+                            size_mb = _best_sizes[name] / (1024 * 1024)
+                            created_parts.append({"name": name, "path": out_path,
+                                                  "size": size_mb, "engine": "gifski"})
+                            logger.info(f"✅ {name}: {size_mb:.2f} MiB [gifski fps={_fps_arg} q={_best_q}]")
+                        _gifski_done = True
+                        break
+
+                    for bak in _best_baks.values():
+                        try: bak.unlink()
+                        except OSError: pass
+
+            # ── ffmpeg fallback: per-part (only if gifski didn't cover all) ──
+            if not _gifski_done:
+                for part in parts_config:
+                    out_path = output_dir / f"{gif_path.stem}_{part['name']}.gif"
+                    chosen = None
+                    last_err = ""
+                    for colors, fps_cap in ffmpeg_ladder:
+                        fps_part = f"fps={fps_cap}," if fps_cap else ""
+                        vf = (
+                            f"{fps_part}"
+                            f"scale={total_width}:{target_height}:flags=lanczos,"
+                            f"crop={part['width']}:{target_height}:{part['left']}:0,"
+                            f"split[s0][s1];"
+                            f"[s0]palettegen=max_colors={colors}:stats_mode=diff:reserve_transparent=1[p];"
+                            f"[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
+                        )
+                        cmd = [str(self.ffmpeg_path), "-i", str(gif_path),
+                               "-vf", vf, "-loop", "0", "-y", str(out_path)]
+                        logger.info(f"✂️ {part['name']}: colors={colors} fps={fps_cap or 'orig'}")
+                        try:
+                            result = subprocess.run(cmd, capture_output=True,
+                                                    encoding='utf-8', errors='replace',
+                                                    timeout=180, **_NO_WINDOW_FLAGS)
+                            if result.returncode != 0:
+                                last_err = (result.stderr or "")[-400:]
+                                logger.warning(f"   ffmpeg rc={result.returncode}: {last_err[-150:]}")
+                                continue
+                            if not out_path.exists():
+                                last_err = "ffmpeg no creó el archivo"
+                                continue
+                            size = out_path.stat().st_size
+                            logger.info(f"   → {size/1024/1024:.2f} MiB")
+                            if size <= MAX_BYTES:
+                                chosen = {"engine": "ffmpeg", "colors": colors,
+                                          "fps": fps_cap, "size": size}
+                                break
+                        except subprocess.TimeoutExpired:
+                            last_err = "timeout"
+                            continue
+                        except Exception as e:
+                            last_err = str(e)
+                            continue
+
+                    if chosen is None:
+                        logger.error(f"❌ {part['name']}: no se pudo generar. último error: {last_err}")
+                        self._last_split_error = f"{part['name']}: {last_err}"
+                        success = False
+                        break
+
+                    self._patch_gif_trailer(out_path)
+                    size_mb = chosen["size"] / (1024 * 1024)
+                    created_parts.append({"name": part['name'], "path": out_path,
+                                          "size": size_mb, "engine": chosen["engine"]})
+                    logger.info(f"✅ {part['name']}: {size_mb:.2f} MiB [ffmpeg]")
 
             if success and len(created_parts) == 2:
                 self._write_manifest(output_dir, "fragmentar_artwork_showcase",
-                    {"main_width": main_width, "side_width": side_width,
-                     "height": target_height,
-                     "calidad": [{"parte": p['name'], "colors": p['colors'], "fps_cap": p['fps_cap']}
-                                 for p in created_parts]},
+                    {"main_width": main_width, "side_width": side_width, "height": target_height,
+                     "partes": [{"name": p['name'], "engine": p['engine']} for p in created_parts]},
                     archivos=[p['path'] for p in created_parts],
                     fuente=_artwork_src)
-                logger.info(f"\n✅ Fragmentación Artwork Showcase completada!")
                 total_size = sum(p['size'] for p in created_parts)
-                for part in created_parts:
-                    status = "✅" if part['size'] * 1024 * 1024 <= STEAM_HARD_MAX else "⚠️"
-                    logger.info(f"  {status} {part['path'].name}: {part['size']:.2f} MiB")
-                logger.info(f"📊 Total: {total_size:.2f} MiB")
+                logger.info(f"✅ Fragmentación Artwork Showcase completada! Total: {total_size:.2f} MiB")
                 return True
             else:
                 logger.error(f"❌ Fragmentación falló: {len(created_parts)}/2 partes creadas")
@@ -1227,6 +1481,7 @@ class SteamProcessor:
         total_width = main_width + side_width
         forced_height = self.config.get('artwork_showcase.height', 0)
         fixed_h = int(forced_height) if forced_height and int(forced_height) > 0 else None
+
         parts = [("artwork_main", main_width, 0), ("artwork_side", side_width, main_width)]
         logger.info(f"🎨 Fragmentando imagen para Artwork Showcase: {image_path}")
         return self._split_image_into_jpeg_parts(
@@ -1364,71 +1619,187 @@ class SteamProcessor:
                 target_h += 1
             logger.info(f"📐 Target: {total_w}×{target_h}, {len(parts_cfg)} parte(s)")
 
-            quality_ladder = [
+            ffmpeg_ladder = [
                 (256, None), (256, 24), (192, 24), (160, 20),
                 (128, 20), (96, 15), (64, 12),
             ]
 
+            _use_gifski = self.check_gifski()
+            _orig_fps = 25
+            try:
+                with Image.open(gif_path) as _fps_img:
+                    _dur = _fps_img.info.get('duration', 40) or 40
+                    _orig_fps = max(1, int(round(1000.0 / _dur)))
+            except Exception:
+                pass
+
+            import tempfile
+            _tmp = Path(tempfile.mkdtemp(prefix="wkart_showcase_"))
             created = []
-            for (name, w, left) in parts_cfg:
-                out_path = output_dir / f"{gif_path.stem}_{name}.gif"
-                chosen = None
-                last_err = ""
-                for colors, fps_cap in quality_ladder:
-                    fps_part = f"fps={fps_cap}," if fps_cap else ""
-                    if fixed_h:
-                        # Preset con alto fijo: escalar preservando ratio hasta cubrir
-                        # total_w×fixed_h y recortar centro (sin distorsión ni barras).
-                        scale = (
-                            f"scale={total_w}:{target_h}"
-                            f":force_original_aspect_ratio=increase"
-                            f":flags=lanczos+accurate_rnd+full_chroma_int,"
-                            f"crop={total_w}:{target_h}"
-                        )
-                        crop = f"crop={w}:{target_h}:{left}:0"
-                    else:
-                        # Alto libre: escalar al ancho exacto preservando ratio.
-                        # Usar ih en crop para evitar desfase de 1px entre Python y FFmpeg.
-                        scale = (
-                            f"scale={total_w}:-2"
-                            f":flags=lanczos+accurate_rnd+full_chroma_int"
-                        )
-                        crop = f"crop={w}:ih:{left}:0"
-                    filter_complex = (
-                        f"[0:v]{fps_part}{scale},{crop},split[a][b];"
-                        f"[a]palettegen=max_colors={colors}:stats_mode=full:reserve_transparent=1[p];"
-                        f"[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle"
-                    )
-                    cmd = [str(self.ffmpeg_path), "-i", str(gif_path),
-                           "-filter_complex", filter_complex, "-loop", "0",
-                           "-y", str(out_path)]
-                    try:
-                        r = subprocess.run(cmd, capture_output=True, text=True,
-                                           timeout=180, **_NO_WINDOW_FLAGS)
-                        if r.returncode != 0:
-                            last_err = (r.stderr or "")[-200:]
+            _gifski_done = False
+            try:
+                # ── gifski: shared fps+quality for ALL parts ─────────────────
+                if _use_gifski:
+                    for fps_cap in [None, 24, 20, 15, 12, 10, 8, 6, 4, 3]:
+                        _fps_a = str(fps_cap) if fps_cap else str(_orig_fps)
+
+                        # Extract frames for every part at this fps tier
+                        _fds: dict = {}
+                        _ex_ok = True
+                        for (name, w, left) in parts_cfg:
+                            if fixed_h:
+                                _sc = (f"scale={total_w}:{target_h}"
+                                       f":force_original_aspect_ratio=increase:flags=lanczos,"
+                                       f"crop={total_w}:{target_h}")
+                                _cr = f"crop={w}:{target_h}:{left}:0"
+                            else:
+                                _sc = f"scale={total_w}:-2:flags=lanczos"
+                                _cr = f"crop={w}:ih:{left}:0"
+                            _vf = (f"fps={fps_cap}," if fps_cap else "") + f"{_sc},{_cr}"
+                            fd = _tmp / f"fd_{fps_cap or 0}_{name}"
+                            shutil.rmtree(fd, ignore_errors=True)
+                            fd.mkdir()
+                            r_ex = subprocess.run(
+                                [str(self.ffmpeg_path), "-y", "-i", str(gif_path),
+                                 "-vf", _vf, str(fd / "frame%06d.png")],
+                                capture_output=True, encoding='utf-8',
+                                errors='replace', timeout=180, **_NO_WINDOW_FLAGS)
+                            if r_ex.returncode != 0 or not any(fd.glob("frame*.png")):
+                                logger.warning(f"   gifski/extract {name} fps={_fps_a}: rc={r_ex.returncode}")
+                                _ex_ok = False
+                                break
+                            _fds[name] = fd
+
+                        if not _ex_ok:
+                            for fd in _fds.values():
+                                shutil.rmtree(fd, ignore_errors=True)
                             continue
-                        if not out_path.exists():
-                            last_err = "ffmpeg no creó el archivo"
-                            continue
-                        sz = out_path.stat().st_size
-                        if sz <= MAX_BYTES:
-                            chosen = (colors, fps_cap, sz)
+
+                        # Binary-search shared quality where ALL parts fit
+                        q_lo, q_hi = 10, 95
+                        _best_q = None
+                        _best_baks: dict = {}
+                        _best_sizes: dict = {}
+
+                        while q_lo <= q_hi:
+                            q = (q_lo + q_hi) // 2
+                            _res: dict = {}
+                            _all_fit = True
+                            for (name, w, left) in parts_cfg:
+                                out_path = output_dir / f"{gif_path.stem}_{name}.gif"
+                                fd = _fds[name]
+                                r = subprocess.run(
+                                    [str(self.gifski_path), "--fps", _fps_a,
+                                     "--quality", str(q), "--repeat", "0",
+                                     "-o", str(out_path), str(fd / "frame*.png")],
+                                    capture_output=True, encoding='utf-8',
+                                    errors='replace', timeout=180, **_NO_WINDOW_FLAGS)
+                                if r.returncode != 0 or not out_path.exists():
+                                    logger.warning(f"   gifski {name} q={q} rc={r.returncode}")
+                                    _all_fit = False
+                                    break
+                                sz = out_path.stat().st_size
+                                logger.info(f"   gifski {name} q={q} fps={_fps_a} → {sz/1024/1024:.2f} MiB")
+                                _res[name] = (out_path, sz)
+                                if sz > MAX_BYTES:
+                                    _all_fit = False
+                                    break
+
+                            if _all_fit and len(_res) == len(parts_cfg):
+                                _best_q = q
+                                for name, (path, sz) in _res.items():
+                                    bak = path.with_suffix("._gbest")
+                                    shutil.copy(path, bak)
+                                    _best_baks[name] = bak
+                                    _best_sizes[name] = sz
+                                q_lo = q + 1
+                            else:
+                                q_hi = q - 1
+
+                        for fd in _fds.values():
+                            shutil.rmtree(fd, ignore_errors=True)
+
+                        if _best_q is not None:
+                            for (name, w, left) in parts_cfg:
+                                out_path = output_dir / f"{gif_path.stem}_{name}.gif"
+                                bak = _best_baks.get(name)
+                                if bak and bak.exists():
+                                    shutil.copy(bak, out_path)
+                                    try: bak.unlink()
+                                    except OSError: pass
+                                self._patch_gif_trailer(out_path)
+                                sz = _best_sizes[name]
+                                created.append({"name": name, "path": out_path,
+                                                "size": sz/1024/1024,
+                                                "colors": _best_q, "fps_cap": fps_cap})
+                                logger.info(f"✅ {name}: {sz/1024/1024:.2f} MiB "
+                                            f"[gifski fps={_fps_a} q={_best_q}]")
+                            _gifski_done = True
                             break
-                    except subprocess.TimeoutExpired:
-                        last_err = "timeout"
-                        continue
-                    except Exception as e:
-                        last_err = str(e)
-                        continue
-                if chosen is None:
-                    logger.error(f"❌ {name}: no generado ≤ {STEAM_HARD_MAX/1024/1024:.1f} MiB. {last_err}")
-                    return False
-                self._patch_gif_trailer(out_path)
-                c, fc, sz = chosen
-                created.append({"name": name, "path": out_path,
-                                "size": sz/1024/1024, "colors": c, "fps_cap": fc})
-                logger.info(f"✅ {name}: {sz/1024/1024:.2f} MiB (c={c}, fps={fc or 'orig'})")
+
+                        for bak in _best_baks.values():
+                            try: bak.unlink()
+                            except OSError: pass
+
+                # ── ffmpeg fallback: per-part ─────────────────────────────────
+                if not _gifski_done:
+                    for (name, w, left) in parts_cfg:
+                        out_path = output_dir / f"{gif_path.stem}_{name}.gif"
+                        chosen = None
+                        last_err = ""
+                        for colors, fps_cap in ffmpeg_ladder:
+                            fps_part = f"fps={fps_cap}," if fps_cap else ""
+                            if fixed_h:
+                                scale = (f"scale={total_w}:{target_h}"
+                                         f":force_original_aspect_ratio=increase"
+                                         f":flags=lanczos+accurate_rnd+full_chroma_int,"
+                                         f"crop={total_w}:{target_h}")
+                                crop = f"crop={w}:{target_h}:{left}:0"
+                            else:
+                                scale = (f"scale={total_w}:-2"
+                                         f":flags=lanczos+accurate_rnd+full_chroma_int")
+                                crop = f"crop={w}:ih:{left}:0"
+                            filter_complex = (
+                                f"[0:v]{fps_part}{scale},{crop},split[a][b];"
+                                f"[a]palettegen=max_colors={colors}:stats_mode=full"
+                                f":reserve_transparent=1[p];"
+                                f"[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
+                            )
+                            cmd = [str(self.ffmpeg_path), "-i", str(gif_path),
+                                   "-filter_complex", filter_complex, "-loop", "0",
+                                   "-y", str(out_path)]
+                            try:
+                                r = subprocess.run(cmd, capture_output=True,
+                                                   encoding='utf-8', errors='replace',
+                                                   timeout=180, **_NO_WINDOW_FLAGS)
+                                if r.returncode != 0:
+                                    last_err = (r.stderr or "")[-200:]
+                                    continue
+                                if not out_path.exists():
+                                    last_err = "ffmpeg no creó el archivo"
+                                    continue
+                                sz = out_path.stat().st_size
+                                if sz <= MAX_BYTES:
+                                    chosen = (colors, fps_cap, sz)
+                                    break
+                            except subprocess.TimeoutExpired:
+                                last_err = "timeout"
+                                continue
+                            except Exception as e:
+                                last_err = str(e)
+                                continue
+
+                        if chosen is None:
+                            logger.error(
+                                f"❌ {name}: no generado ≤ {STEAM_HARD_MAX/1024/1024:.1f} MiB. {last_err}")
+                            return False
+                        self._patch_gif_trailer(out_path)
+                        info, fc, sz = chosen
+                        created.append({"name": name, "path": out_path,
+                                        "size": sz/1024/1024, "colors": info, "fps_cap": fc})
+                        logger.info(f"✅ {name}: {sz/1024/1024:.2f} MiB [ffmpeg fps={fc or 'orig'}]")
+            finally:
+                shutil.rmtree(_tmp, ignore_errors=True)
 
             self._write_manifest(output_dir, f"showcase_{preset}",
                 {"preset": preset, "total_w": total_w, "height": target_h,
@@ -1904,6 +2275,57 @@ class SteamProcessor:
             return cand, cand.stat().st_size / (1024 * 1024)
 
         try:
+            # ── gifski primary path ────────────────────────────────────────────
+            if self.gifski_path and self.gifski_path.exists():
+                _orig_fps = 25
+                try:
+                    with Image.open(gif_path) as _img:
+                        _dur = _img.info.get('duration', 40) or 40
+                        _orig_fps = max(1, int(round(1000.0 / _dur)))
+                except Exception:
+                    pass
+
+                gifski_fps_tiers = [None, 24, 20, 15, 12, 10, 8, 6, 4, 3]
+                max_bytes = int(max_mb * 1024 * 1024)
+                gsk_frames = tmp_dir / "_gsk_frames"
+
+                for fps_cap in gifski_fps_tiers:
+                    shutil.rmtree(gsk_frames, ignore_errors=True)
+                    gsk_frames.mkdir()
+                    cmd_ex = [str(self.ffmpeg_path), "-y", "-i", str(gif_path)]
+                    if fps_cap:
+                        cmd_ex += ["-vf", f"fps={fps_cap}"]
+                    cmd_ex.append(str(gsk_frames / "frame%06d.png"))
+                    r_ex = subprocess.run(cmd_ex, capture_output=True,
+                                          encoding='utf-8', errors='replace',
+                                          timeout=180, **_NO_WINDOW_FLAGS)
+                    if r_ex.returncode != 0 or not any(gsk_frames.glob("frame*.png")):
+                        log(f"  gifski fps={fps_cap or 'orig'}: extracción falló")
+                        continue
+
+                    fps_arg = str(fps_cap) if fps_cap else str(_orig_fps)
+                    gsk_out = tmp_dir / "_gsk_out.gif"
+                    result = self._gifski_optimal(
+                        str(gsk_frames / "frame*.png"), gsk_out, fps_arg, max_bytes
+                    )
+                    if result is not None:
+                        q, size = result
+                        size_mb = size / (1024 * 1024)
+                        log(f"✅ gifski fps={fps_cap or 'orig'} q={q} → {size_mb:.2f} MB")
+                        shutil.copy(gsk_out, out_path)
+                        self._write_manifest(out_dir, "optimizar_tamano",
+                            {"max_mb": max_mb, "min_mb": min_mb,
+                             "engine": "gifski", "fps": fps_cap or "orig", "quality": q,
+                             "resultado_mb": round(size_mb, 3),
+                             "original_mb": round(original_mb, 3)},
+                            archivos=[out_path], fuente=gif_path)
+                        self._patch_gif_trailer(out_path)
+                        return out_path
+                    log(f"  gifski fps={fps_cap or 'orig'}: no cupo bajo {max_mb:.2f} MB")
+
+                log(f"gifski no consiguió bajar de {max_mb:.2f} MB — usando ffmpeg...")
+
+            # ── ffmpeg ladder ──────────────────────────────────────────────────
             hit_range = False
             for idx, (fps, colors, scale) in enumerate(strategies, 1):
                 candidate, size_mb = _run_candidate(fps, colors, scale, f"{idx:02d}")
@@ -2075,6 +2497,115 @@ class SteamProcessor:
         winning_results: Optional[List[Tuple[Path, float]]] = None
 
         try:
+            # ── gifski primary path (shared quality across all fragments) ──────
+            if self.gifski_path and self.gifski_path.exists():
+                _orig_fps = 25
+                try:
+                    with Image.open(paths[0]) as _img:
+                        _dur = _img.info.get('duration', 40) or 40
+                        _orig_fps = max(1, int(round(1000.0 / _dur)))
+                except Exception:
+                    pass
+
+                gifski_fps_tiers = [None, 24, 20, 15, 12, 10, 8, 6, 4, 3]
+                max_bytes = int(max_mb * 1024 * 1024)
+                gsk_tmp = tmp_dir / "_gsk"
+                gsk_tmp.mkdir()
+
+                for fps_cap in gifski_fps_tiers:
+                    fps_arg = str(fps_cap) if fps_cap else str(_orig_fps)
+
+                    frame_dirs: List[Path] = []
+                    extract_ok = True
+                    for i, src in enumerate(paths):
+                        fd = gsk_tmp / f"fd_{fps_cap or 0}_{i}"
+                        shutil.rmtree(fd, ignore_errors=True)
+                        fd.mkdir()
+                        cmd_ex = [str(self.ffmpeg_path), "-y", "-i", str(src)]
+                        if fps_cap:
+                            cmd_ex += ["-vf", f"fps={fps_cap}"]
+                        cmd_ex.append(str(fd / "frame%06d.png"))
+                        r_ex = subprocess.run(cmd_ex, capture_output=True,
+                                              encoding='utf-8', errors='replace',
+                                              timeout=180, **_NO_WINDOW_FLAGS)
+                        if r_ex.returncode != 0 or not any(fd.glob("frame*.png")):
+                            log(f"  gifski batch fps={fps_arg}: extracción falló para {src.name}")
+                            extract_ok = False
+                            break
+                        frame_dirs.append(fd)
+
+                    if not extract_ok:
+                        continue
+
+                    # Binary-search shared quality where ALL fragments fit
+                    q_lo, q_hi = 10, 95
+                    best_q: Optional[int] = None
+                    best_gsk_results: Optional[List[Tuple[Path, float]]] = None
+
+                    while q_lo <= q_hi:
+                        q = (q_lo + q_hi) // 2
+                        frag_results: List[Tuple[Path, float]] = []
+                        all_fit = True
+                        for i, fd in enumerate(frame_dirs):
+                            gsk_out = gsk_tmp / f"q{q}_{i}.gif"
+                            r = subprocess.run(
+                                [str(self.gifski_path), "--fps", fps_arg,
+                                 "--quality", str(q), "--repeat", "0",
+                                 "-o", str(gsk_out), str(fd / "frame*.png")],
+                                capture_output=True, encoding='utf-8',
+                                errors='replace', timeout=180, **_NO_WINDOW_FLAGS,
+                            )
+                            if r.returncode != 0 or not gsk_out.exists():
+                                log(f"   gifski batch q={q} frag {i}: rc={r.returncode}")
+                                all_fit = False
+                                break
+                            size = gsk_out.stat().st_size
+                            frag_results.append((gsk_out, size / (1024 * 1024)))
+                            if size > max_bytes:
+                                all_fit = False
+                                break
+
+                        if all_fit and len(frag_results) == len(frame_dirs):
+                            best_q = q
+                            best_gsk_results = list(frag_results)
+                            q_lo = q + 1
+                            log(f"   gifski batch fps={fps_arg} q={q} → OK "
+                                f"(max={max(r[1] for r in frag_results):.2f} MB)")
+                        else:
+                            q_hi = q - 1
+
+                    if best_q is not None and best_gsk_results is not None:
+                        log(f"✅ gifski batch fps={fps_arg} q={best_q}")
+                        all_out_names = [f"{src.stem}_opt.gif" for src in paths]
+                        dirs_cleaned_gsk: set = set()
+                        _gsk_out_paths: List[Optional[Path]] = []
+                        for src in paths:
+                            od = self._workspace_dir(src, "optimizado")
+                            if od not in dirs_cleaned_gsk:
+                                self._archive_before_overwrite(od, keep_names=all_out_names)
+                                dirs_cleaned_gsk.add(od)
+                        for src, (cand, size_mb) in zip(paths, best_gsk_results):
+                            od = self._workspace_dir(src, "optimizado")
+                            dst = od / f"{src.stem}_opt.gif"
+                            shutil.copy(cand, dst)
+                            self._write_manifest(od, "optimizar_tamano_batch",
+                                {"max_mb": max_mb, "min_mb": min_mb,
+                                 "engine": "gifski", "fps": fps_cap or "orig",
+                                 "quality": best_q,
+                                 "resultado_mb": round(size_mb, 3),
+                                 "estrategia_compartida": True,
+                                 "total_fragmentos": len(paths)},
+                                archivos=[dst], fuente=src)
+                            self._patch_gif_trailer(dst)
+                            _gsk_out_paths.append(dst)
+                            log(f"✅ {src.name} → {dst.name} ({size_mb:.2f} MB)")
+                        return _gsk_out_paths
+
+                    log(f"  gifski batch fps={fps_arg}: ninguna calidad cupo en todos")
+
+                log(f"gifski batch: ningún tier funcionó, usando ffmpeg fallback...")
+
+            # ── ffmpeg ladder ──────────────────────────────────────────────────
             # 1) Primer fit: estrategia de mayor calidad donde TODOS quepan
             for idx, (fps, colors, scale) in enumerate(strategies, 1):
                 results = _run_all(fps, colors, scale, f"s{idx:02d}")
