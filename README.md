@@ -12,7 +12,7 @@
 
 Transform videos and GIFs into upload-ready fragments for any Steam showcase — Artwork, Screenshot, Workshop, Panorama — using AI upscaling (Real-ESRGAN / Real-CUGAN).
 
-[Download Release](../../releases) | [Quick Start](#installation) | [Steam Upload Guide](#uploading-to-steam) | [Report a Bug](../../issues/new)
+[Download on Itch.io](https://mxteoo7.itch.io) | [Download Release](../../releases) | [Quick Start](#installation) | [Steam Upload Guide](#uploading-to-steam) | [Report a Bug](../../issues/new)
 
 </div>
 
@@ -293,9 +293,9 @@ Steam-Workshop-Art-Maker/
 
 If WorkshopArt PRO saved you time, consider supporting continued development. Every contribution helps maintain the project and fund new features.
 
-<!-- TODO: Add donation links (Ko-fi / PayPal / crypto / etc.) -->
+[![Download on Itch.io](https://img.shields.io/badge/Download-Itch.io-FA5C5C?logo=itch.io&logoColor=white)](https://mxteoo7.itch.io)
 
-> Donation links coming soon.
+<!-- TODO: Add Ko-fi / PayPal link -->
 
 ---
 
