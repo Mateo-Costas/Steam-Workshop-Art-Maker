@@ -1,0 +1,104 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# PyInstaller
+dist/
+build/
+*.spec.bak
+*.manifest
+WorkshopArt_PRO_*.spec
+
+# Runtime app data
+SteamWorkshopAppData/
+
+# RIFE model bundles (auto-downloaded at runtime)
+rife/
+rife-*/
+
+# Developer / internal tooling
+developer/
+
+# Real-ESRGAN bundled readme (not project docs)
+README_windows.md
+
+# Release zips (uploaded via GitHub Releases, not committed)
+*.zip
+
+# Demo / test media files
+onepiece_demo.mp4
+*.mp4
+
+# Executables and binaries
+*.exe
+*.dll
+
+# AI models (large files, auto-downloaded)
+models/*.bin
+models/*.param
+models-se/
+models-pro/
+
+# Temporary files
+temp/
+temp_download/
+*.tmp
+*.tmp.*
+ffmpeg_temp.zip
+models_temp.zip
+
+# Configuration (generated at runtime)
+config.json
+
+# Logs
+logs/
+runtime.log
+
+# Workspaces de archivos procesados por el usuario
+*_workshop/
+
+# Docs privadas (notas internas, no para distribución)
+docs/STEAM_ANIMATED_ARTWORK_EXPERT.md
+
+# Claude Code internal files
+.claude/
+memory/
+
+# Environment and secrets
+.env
+.env.*
+
+# Personal Steam auto-upload (private, per-user)
+src/steam_uploader.py
+steam_cookies.json
+upload_tool.py
+
+# PRO-only features (implementacion real, gitignoreada)
+src/_pro_features.py
+src/fragment_preview.py
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Screenshots placeholder directory (keep the dir, ignore contents)
+# screenshots/
+
+# Misc
+*.bak
+*.orig
