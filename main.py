@@ -77,8 +77,7 @@ import platform as _pf
 
 _NO_WINDOW_FLAGS = {'creationflags': _sp.CREATE_NO_WINDOW} if _pf.system() == 'Windows' else {}
 
-from gui import WorkshopArtGUI
-from theme_PRO import ModernThemePro
+from ui.app import WorkshopArtGUI
 
 
 # ---------------------------------------------------------------------------

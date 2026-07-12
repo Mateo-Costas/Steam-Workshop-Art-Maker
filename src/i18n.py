@@ -479,7 +479,7 @@ ES = {
 
     # ---- gui_methods.py  on_closing / run ----
     "app_closed_log": "Aplicación cerrada correctamente",
-    "welcome_log": "WorkshopArt v1.0 iniciado",
+    "welcome_log": "WorkshopArt v2.0 iniciado",
     "welcome_modular_log": "Versión modular con todas las funciones",
     "welcome_start_log": "Selecciona un archivo para comenzar",
     "tutorial_opened_log": "Tutorial de Steam abierto",
@@ -1545,7 +1545,7 @@ PT = {
 
     # ---- gui_methods.py  on_closing / run ----
     "app_closed_log": "Aplicativo fechado corretamente",
-    "welcome_log": "WorkshopArt v1.0 iniciado",
+    "welcome_log": "WorkshopArt v2.0 iniciado",
     "welcome_modular_log": "Versão modular com todas as funções",
     "welcome_start_log": "Selecione um arquivo para começar",
     "tutorial_opened_log": "Tutorial do Steam aberto",
