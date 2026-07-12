@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 
 import customtkinter as ctk
+from tkinter import filedialog
 from PIL import Image, ImageTk, ImageSequence
 
 from theme_PRO import Colors, Fonts
