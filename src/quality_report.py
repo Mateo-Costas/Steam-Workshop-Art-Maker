@@ -17,10 +17,11 @@ import numpy as np
 import cv2
 from pathlib import Path
 from datetime import datetime
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')
 from io import BytesIO
+
+# matplotlib is imported lazily inside the chart-rendering method: importing
+# pyplot at module load added 1-2 s to app startup for a feature that is only
+# used after an AI processing run.
 
 logger = logging.getLogger("WorkshopArtPRO.quality_report")
 
@@ -593,6 +594,10 @@ class QualityReportSystem:
     def _create_metrics_charts(self, parent, report: dict):
         """Crear gráficos de métricas"""
         try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+
             # Frame para gráficos
             charts_frame = ttk.Frame(parent, style="Modern.TFrame")
             charts_frame.pack(fill="both", expand=True, padx=20, pady=20)

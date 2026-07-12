@@ -248,14 +248,23 @@ class GUIMethodsMixin:
         """Append a timestamped line to the on-screen process log and the stdlib logger.
 
         CTkTextbox does not support colour tags, so all levels are plain text in the widget.
+        Called from worker threads throughout the codebase, so the widget insert is
+        dispatched through update_queue when not on the main thread.
         """
         timestamp = datetime.now().strftime("%H:%M:%S")
         line = f"[{timestamp}] {level}: {message}\n"
-        self.process_log.insert("end", line)
-        try:
-            self.process_log.see("end")  # auto-scroll to keep the latest line visible
-        except Exception:
-            pass
+
+        def _append():
+            try:
+                self.process_log.insert("end", line)
+                self.process_log.see("end")  # auto-scroll to keep the latest line visible
+            except Exception:
+                pass
+
+        if threading.current_thread() is threading.main_thread():
+            _append()
+        else:
+            self.update_queue.put((_append, ()))
 
         if level == "ERROR":
             self.logger.error(message)
@@ -859,7 +868,7 @@ class GUIMethodsMixin:
                               "• x4plus Anime (máxima calidad)\n" +
                               "• ESRNet (fotos realistas)\n" +
                               "• x2plus (rápido)\n\n" +
-                              "💾 ~200 MB de descarga\n" +
+                              "💾 ~70 MB de descarga\n" +
                               "⏱️ 2-5 minutos según conexión\n\n" +
                               "¿Continuar?"):
             threading.Thread(target=download, daemon=True).start()
@@ -1091,6 +1100,7 @@ class GUIMethodsMixin:
 
             def process():
                 self._raise_if_cancelled()
+                source_file = self.current_file  # keep for the manifest; current_file is reassigned below
                 try:
                     self.update_status("Convirtiendo video a GIF...", 20, "🎬")
                     self.log_message("=== CONVERSIÓN MP4 → GIF ===", "INFO")
@@ -1142,7 +1152,7 @@ class GUIMethodsMixin:
                         try:
                             self.processor._write_manifest(_conv_dir, "convertir_video_a_gif",
                                 {"fps": fps, "mejorar_colores": bool(should_enhance)},
-                                archivos=[final_result], fuente=self.current_file)
+                                archivos=[final_result], fuente=source_file)
                         except Exception:
                             pass
 
@@ -1176,6 +1186,16 @@ class GUIMethodsMixin:
                       border_color=Colors.BORDER,
                       hover_color=Colors.HOVER,
                       height=34, corner_radius=8).pack(side="right")
+    def _open_fragment_preview(self):
+        """Open the Steam profile simulator popup. Only reachable when PREVIEW_AVAILABLE is True."""
+        if not self.current_file:
+            self._ui_warn("Sin archivo", "Selecciona un archivo antes de abrir el preview.")
+            return
+        try:
+            self.fragment_previewer.create_fragment_preview(self.current_file, self.root)
+        except Exception as e:
+            self._ui_error("Error", f"No se pudo abrir el preview:\n{e}")
+
     def enhance_animation(self):
         """Stub: RIFE frame-interpolation enhancement — replaced by the PRO patch at module load."""
         messagebox.showinfo(

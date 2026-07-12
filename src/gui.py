@@ -23,8 +23,6 @@ import queue
 from pathlib import Path
 from datetime import datetime
 from PIL import Image, ImageTk
-import matplotlib
-matplotlib.use('Agg')
 
 from config import Config
 from theme_PRO import Colors, Fonts, ModernThemePro
@@ -502,30 +500,50 @@ class WorkshopArtGUI(GUIMethodsMixin):
         self.temperature_var.trace_add("write", self._on_temperature_change)
 
         # ----------------------------------------------------------------
-        # Preview tab  (PRO lock badge in free build)
+        # Preview tab — active launcher in PRO build, lock badge in free build
         # ----------------------------------------------------------------
         prev_tab = self._tabview.tab("Preview")
 
-        ctk.CTkLabel(prev_tab, text="🔒",
-                     font=("Segoe UI", 36),
-                     text_color=Colors.WARNING).pack(pady=(40, 4))
-        ctk.CTkLabel(prev_tab, text="Fragment Preview",
-                     font=("Segoe UI", 13, "bold"),
-                     text_color=Colors.TEXT).pack(pady=(0, 6))
-        ctk.CTkLabel(prev_tab, text="PRO Feature",
-                     font=("Segoe UI", 9, "bold"),
-                     text_color=Colors.WARNING,
-                     fg_color=Colors.BG_TERTIARY,
-                     corner_radius=6,
-                     width=84, height=22).pack(pady=(0, 14))
-        ctk.CTkLabel(prev_tab,
-                     text=("Simula tu Steam profile\n"
-                           "con todos los presets de\n"
-                           "Artwork Showcase antes\n"
-                           "de subir tus fragmentos."),
-                     font=Fonts.SMALL,
-                     text_color=Colors.TEXT_MUTED,
-                     justify="center").pack(padx=20)
+        if PREVIEW_AVAILABLE:
+            ctk.CTkLabel(prev_tab, text="Fragment Preview",
+                         font=("Segoe UI", 13, "bold"),
+                         text_color=Colors.TEXT).pack(pady=(30, 6))
+            ctk.CTkLabel(prev_tab,
+                         text=("Simula tu Steam profile\n"
+                               "con todos los presets de\n"
+                               "Artwork Showcase antes\n"
+                               "de subir tus fragmentos."),
+                         font=Fonts.SMALL,
+                         text_color=Colors.TEXT_MUTED,
+                         justify="center").pack(padx=20, pady=(0, 16))
+            ctk.CTkButton(
+                prev_tab, text="Abrir Preview",
+                command=self._open_fragment_preview,
+                fg_color=Colors.ACCENT,
+                hover_color=self._darken(Colors.ACCENT),
+                height=36, corner_radius=8, font=Fonts.SMALL,
+            ).pack(fill="x", padx=20)
+        else:
+            ctk.CTkLabel(prev_tab, text="🔒",
+                         font=("Segoe UI", 36),
+                         text_color=Colors.WARNING).pack(pady=(40, 4))
+            ctk.CTkLabel(prev_tab, text="Fragment Preview",
+                         font=("Segoe UI", 13, "bold"),
+                         text_color=Colors.TEXT).pack(pady=(0, 6))
+            ctk.CTkLabel(prev_tab, text="PRO Feature",
+                         font=("Segoe UI", 9, "bold"),
+                         text_color=Colors.WARNING,
+                         fg_color=Colors.BG_TERTIARY,
+                         corner_radius=6,
+                         width=84, height=22).pack(pady=(0, 14))
+            ctk.CTkLabel(prev_tab,
+                         text=("Simula tu Steam profile\n"
+                               "con todos los presets de\n"
+                               "Artwork Showcase antes\n"
+                               "de subir tus fragmentos."),
+                         font=Fonts.SMALL,
+                         text_color=Colors.TEXT_MUTED,
+                         justify="center").pack(padx=20)
 
         # ----------------------------------------------------------------
         # Settings tab

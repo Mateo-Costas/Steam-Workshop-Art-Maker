@@ -481,6 +481,7 @@ def check_and_download_dependencies() -> bool:
     False if a critical dependency (FFmpeg) could not be installed.
     """
     splash, status_label, log_widget, progress = show_download_splash()
+    downloaded_something = False
 
     try:
         _safe_log(log_widget, "WorkshopArt v1.0 - Inicializando...")
@@ -496,6 +497,7 @@ def check_and_download_dependencies() -> bool:
         if not check_ffmpeg_exists():
             _safe_log(log_widget, "FFmpeg no encontrado, descargando...")
             download_ffmpeg_portable(log_widget, status_label)
+            downloaded_something = True
         else:
             _safe_log(log_widget, "FFmpeg disponible")
 
@@ -505,6 +507,7 @@ def check_and_download_dependencies() -> bool:
         if len(model_files) < 3:
             _safe_log(log_widget, f"Solo {len(model_files)} modelos, descargando...")
             download_ai_models(log_widget, status_label)
+            downloaded_something = True
         else:
             _safe_log(log_widget, f"{len(model_files)} modelos de IA disponibles")
 
@@ -514,6 +517,7 @@ def check_and_download_dependencies() -> bool:
             _safe_log(log_widget, "RIFE no encontrado, descargando...")
             try:
                 download_rife(log_widget, status_label)
+                downloaded_something = True
             except Exception as e:
                 _safe_log(log_widget, f"RIFE no disponible: {e} (interpolacion deshabilitada)")
         else:
@@ -525,6 +529,7 @@ def check_and_download_dependencies() -> bool:
             _safe_log(log_widget, "gifski no encontrado, descargando...")
             try:
                 download_gifski(log_widget, status_label)
+                downloaded_something = True
             except Exception as e:
                 _safe_log(log_widget, f"gifski no disponible: {e} (fallback a ffmpeg)")
         else:
@@ -544,7 +549,9 @@ def check_and_download_dependencies() -> bool:
         _safe_log(log_widget, "Sistema listo. Iniciando WorkshopArt...")
         status_label.config(text="Listo! Iniciando WorkshopArt v1.0...")
 
-        splash.after(3000, splash.destroy)
+        # Fast path: nothing was downloaded, so don't hold the user 3 s staring
+        # at the splash — close it almost immediately.
+        splash.after(3000 if downloaded_something else 500, splash.destroy)
         splash.mainloop()
         return True
 
@@ -576,7 +583,12 @@ def run_upload_tool():
         preset_key = None
         if '--fragments' in sys.argv:
             idx = sys.argv.index('--fragments')
-            preload = [Path(p) for p in sys.argv[idx + 1:] if not p.startswith('--')]
+            # Consume args only until the next flag; otherwise the value of
+            # --preset would be swallowed as a bogus fragment path.
+            for p in sys.argv[idx + 1:]:
+                if p.startswith('--'):
+                    break
+                preload.append(Path(p))
         if '--preset' in sys.argv:
             idx = sys.argv.index('--preset')
             if idx + 1 < len(sys.argv):

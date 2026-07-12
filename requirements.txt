@@ -1,23 +1,25 @@
 # WorkshopArt PRO v3.0 - Dependencias (versión FREE / GitHub)
 
 # === CORE ===
-pillow>=10.0.0
-moviepy>=1.0.3
-opencv-python>=4.8.0
-numpy>=1.24.0
-matplotlib>=3.7.0
-requests>=2.31.0
-tqdm>=4.65.0
-windnd>=1.0.7
-customtkinter>=5.2.0
+pillow>=10.0.0,<11.0.0
+# moviepy: fijado a <2.0.0 porque el codigo usa "from moviepy.editor import VideoFileClip",
+# modulo eliminado en moviepy 2.x (API reescrita, breaking change).
+moviepy>=1.0.3,<2.0.0
+opencv-python>=4.8.0,<5.0.0
+numpy>=1.24.0,<2.0.0
+matplotlib>=3.7.0,<4.0.0
+requests>=2.31.0,<3.0.0
+tqdm>=4.65.0,<5.0.0
+windnd>=1.0.7,<2.0.0
+customtkinter>=5.2.0,<6.0.0
 
 # === GPU INFO ===
 # GPUtil: detección de VRAM para GPUs NVIDIA (opcional, falla silenciosamente)
-gputil>=1.4.0
+gputil>=1.4.0,<2.0.0
 
 # === GIF OPTIMIZATION ===
 # pygifsicle: wrapper para gifsicle (el binario se auto-descarga si no está instalado)
-pygifsicle>=1.0.5
+pygifsicle>=1.0.5,<2.0.0
 
 # === OPCIONAL (auto-upload Steam, uso personal) ===
 # browser_cookie3>=0.19.0

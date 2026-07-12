@@ -7,6 +7,7 @@ exist, writes DEFAULT_CONFIG to disk. Supports dot-notation access
 on top of defaults so new keys are always available after updates.
 """
 
+import copy
 import json
 from pathlib import Path
 
@@ -62,14 +63,16 @@ class Config:
             try:
                 with open(self.config_path, 'r', encoding='utf-8') as f:
                     user_config = json.load(f)
-                    # Deep-merge so new default keys are available even with old config files
-                    return self._deep_merge(self.DEFAULT_CONFIG.copy(), user_config)
+                    # Deep-merge so new default keys are available even with old config files.
+                    # deepcopy: a shallow copy would let the merge mutate the class-level
+                    # DEFAULT_CONFIG nested dicts, corrupting defaults for later instances.
+                    return self._deep_merge(copy.deepcopy(self.DEFAULT_CONFIG), user_config)
             except Exception:
                 pass
 
         # File missing or unreadable — write fresh defaults
         self.save_config(self.DEFAULT_CONFIG)
-        return self.DEFAULT_CONFIG.copy()
+        return copy.deepcopy(self.DEFAULT_CONFIG)
 
     def save_config(self, config: dict = None):
         """Persist current (or provided) config dict to config.json."""

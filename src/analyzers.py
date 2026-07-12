@@ -129,11 +129,11 @@ class ContentAnalyzer:
 
         logger.debug(
             "Analisis: anime=%.2f vintage=%.2f modern=%.2f gaming=%.2f realistic=%.2f "
-            "tipo=%s confianza=%.0%% modelo=%s",
+            "tipo=%s confianza=%.0f%% modelo=%s",
             results['anime_score'], results['vintage_anime_score'],
             results['modern_anime_score'], results['gaming_score'],
             results['realistic_score'], results['type'],
-            results['confidence'], results['recommended_model']
+            results['confidence'] * 100, results['recommended_model']
         )
         
         return results
@@ -396,8 +396,11 @@ class ContentAnalyzer:
                 color_style_score += min(0.4, uniformity * 2)
             
             # 2. PALETA LIMITADA (anime usa menos colores únicos)
-            # Quantizar colores y contar únicos
-            data = img_array.reshape((-1, 3))
+            # Subsample pixels before np.unique: on large frames (1080p+) the full
+            # unique-count is O(n log n) over millions of rows and dominates the
+            # whole analysis. The unique/total ratio is stable under subsampling.
+            step = max(1, int((img_array.shape[0] * img_array.shape[1] / 65536) ** 0.5))
+            data = img_array[::step, ::step].reshape((-1, 3))
             unique_colors = len(np.unique(data, axis=0))
             total_pixels = data.shape[0]
             
