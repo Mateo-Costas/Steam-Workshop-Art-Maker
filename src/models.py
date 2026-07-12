@@ -536,14 +536,19 @@ class ModelManager:
         Falls back to the first available model if the preferred one isn't installed."""
         content_type = content_analysis.get("type", "unknown")
         
-        # Mapeo con modelos reales (CUGAN preferido para anime puro)
+        # Mapeo simple (tipos del ContentAnalyzer: anime/gaming/realistic/mixed).
+        # Legacy "x/y" keys kept so old analysis dicts still resolve.
         model_mapping = {
+            "anime": "realesr-animevideov3-x4",
+            "gaming": "realesrgan-x4plus",
+            "realistic": "realesrnet-x4plus",
+            "mixed": "realesrgan-x4plus",
+            # legacy
             "anime/gaming": "cugan-se-4x-no-denoise",
             "anime/illustration": "cugan-se-4x-no-denoise",
             "gaming/mixed": "realesrgan-x4plus",
-            "realistic/photo": "realesrgan-x4plus",
-            "dark/gaming": "realesr-animevideov3-x4",
-            "mixed": "realesrgan-x4plus"
+            "realistic/photo": "realesrnet-x4plus",
+            "mixed_legacy": "realesrgan-x4plus",
         }
         
         recommended = model_mapping.get(content_type, "realesrgan-x4plus")

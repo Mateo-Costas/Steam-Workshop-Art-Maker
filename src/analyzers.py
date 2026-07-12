@@ -2,7 +2,7 @@
 analyzers.py - Computer-vision content analyzer for automatic AI model selection.
 
 Inspects a GIF, image, or video and classifies it as one of:
-  anime/vintage, anime/modern, gaming/mixed, realistic/photo, or mixed.
+  anime, gaming, realistic, or mixed.
 
 The classification drives which upscaling model is recommended (see ModelManager).
 Uses OpenCV for edge detection, contour analysis, and color-space transforms,
@@ -12,9 +12,8 @@ Detection pipeline (per frame):
   1. Anime character detection  — skin tones, unnatural hair colors, large circles (eyes)
   2. Anime color style           — uniform color blocks, limited palette, saturation range
   3. Anime line art              — Canny edge density, closed-contour ratio, line consistency
-  4. Vintage vs modern quality   — resolution, JPEG blocking artifacts, saturation level
-  5. Gaming UI detection         — rectangular contour count
-  6. Realistic content           — natural noise levels, organic texture variance
+  4. Gaming UI detection         — rectangular contour count
+  5. Realistic content           — natural noise levels, organic texture variance
 
 Scores from 1–5 are weighted and combined into a final anime_score. If
 anime_score > 0.3 the content is classified as anime; otherwise gaming or
@@ -48,8 +47,6 @@ class ContentAnalyzer:
             "confidence": 0.0,
             "details": {},
             "anime_score": 0.0,
-            "vintage_anime_score": 0.0,
-            "modern_anime_score": 0.0,
             "gaming_score": 0.0,
             "realistic_score": 0.0,
             "aspect_ratio": None,
@@ -128,10 +125,9 @@ class ContentAnalyzer:
             results['upload_suggestion'] = ContentAnalyzer._get_upload_suggestion(_aw, _ah)
 
         logger.debug(
-            "Analisis: anime=%.2f vintage=%.2f modern=%.2f gaming=%.2f realistic=%.2f "
+            "Analisis: anime=%.2f gaming=%.2f realistic=%.2f "
             "tipo=%s confianza=%.0f%% modelo=%s",
-            results['anime_score'], results['vintage_anime_score'],
-            results['modern_anime_score'], results['gaming_score'],
+            results['anime_score'], results['gaming_score'],
             results['realistic_score'], results['type'],
             results['confidence'] * 100, results['recommended_model']
         )
@@ -153,8 +149,6 @@ class ContentAnalyzer:
             "confidence": 0.0,
             "details": {},
             "anime_score": 0.0,
-            "vintage_anime_score": 0.0,
-            "modern_anime_score": 0.0,
             "gaming_score": 0.0,
             "realistic_score": 0.0
         }
@@ -193,17 +187,7 @@ class ContentAnalyzer:
             )
 
             # =================================================================
-            # VINTAGE VS MODERN (MENOR PESO EN LA DECISIÓN FINAL)
-            # =================================================================
-
-            # Vintage indicators (peso reducido)
-            vintage_score = ContentAnalyzer._detect_vintage_quality(img_array) * 0.3
-
-            # Modern indicators (peso reducido)
-            modern_score = ContentAnalyzer._detect_modern_quality(img_array) * 0.3
-
-            # =================================================================
-            # GAMING Y REALISTIC (COMO ANTES)
+            # GAMING Y REALISTIC
             # =================================================================
 
             gaming_score = (
@@ -216,73 +200,23 @@ class ContentAnalyzer:
                 ContentAnalyzer._analyze_organic_textures(img_array) * 0.5
             )
 
-            logger.debug("Gaming=%.3f realistic=%.3f vintage=%.3f modern=%.3f", gaming_score, realistic_score, vintage_score, modern_score)
-            
+            logger.debug("Gaming=%.3f realistic=%.3f", gaming_score, realistic_score)
+
             # =================================================================
-            # LÓGICA DE DECISIÓN AJUSTADA
+            # DECISIÓN SIMPLE: ¿anime o no? Y si no, ¿gaming, realista o mixto?
+            # El sub-tipo vintage/modern se eliminó: no cambiaba el modelo de
+            # forma fiable y complicaba la clasificación.
             # =================================================================
-            
-            # PRIORIDAD 1: ¿Es anime en general?
-            is_anime = general_anime_score > 0.3  # Umbral bajo para capturar más anime
-            
-            # PRIORIDAD 2: Si es anime, ¿qué tipo?
-            if is_anime:
-                logger.debug("Anime detectado (score=%.3f)", general_anime_score)
-                
-                # Decidir vintage vs modern con lógica más flexible
-                if vintage_score > modern_score or general_anime_score > 0.6:
-                    # Si vintage gana O si es claramente anime, preferir vintage
-                    content_type = "anime/vintage" 
-                    model = "realesr-animevideov3-x4"  # MEJOR para anime clásico
-                    characteristics = ["anime", "vintage_style", "one_piece_compatible"]
-                    final_confidence = general_anime_score * 1.2  # Boost
-                else:
-                    content_type = "anime/modern"
-                    model = "realesrgan-x4plus-anime" 
-                    characteristics = ["anime", "modern_style"]
-                    final_confidence = general_anime_score
-                
-                # Si la confianza es muy alta, forzar vintage (para One Piece)
-                if general_anime_score > 0.5:
-                    content_type = "anime/vintage"
-                    model = "realesr-animevideov3-x4"
-                    final_confidence = min(1.0, general_anime_score * 1.3)
-                    logger.debug("Forzando anime/vintage por alta confianza")
-            
-            else:
-                # No es anime claramente
-                if gaming_score > 0.5:
-                    content_type = "gaming/mixed"
-                    model = "realesrgan-x4plus"
-                    characteristics = ["gaming"]
-                    final_confidence = gaming_score
-                elif realistic_score > 0.5:
-                    content_type = "realistic/photo"
-                    model = "realesrnet-x4plus"
-                    characteristics = ["realistic"]
-                    final_confidence = realistic_score
-                else:
-                    # FALLBACK ESPECIAL: Si nada es claro pero hay indicios de anime, forzar anime/vintage
-                    if general_anime_score > 0.15:  # Umbral muy bajo
-                        content_type = "anime/vintage_uncertain"
-                        model = "realesr-animevideov3-x4"  # Mejor apuesta para anime
-                        characteristics = ["possible_anime", "vintage_fallback"]
-                        final_confidence = 0.7  # Confianza moderada
-                        logger.debug("Fallback a anime/vintage (score=%.3f)", general_anime_score)
-                    else:
-                        content_type = "mixed"
-                        model = "realesrgan-x4plus"
-                        characteristics = ["mixed_content"]
-                        final_confidence = 0.5
-            
+            content_type, model, characteristics, final_confidence = \
+                ContentAnalyzer._decide(general_anime_score, gaming_score,
+                                        realistic_score)
+
             results.update({
                 "type": content_type,
                 "characteristics": characteristics,
                 "recommended_model": model,
                 "confidence": min(1.0, final_confidence),
                 "anime_score": general_anime_score,
-                "vintage_anime_score": vintage_score,
-                "modern_anime_score": modern_score,
                 "gaming_score": gaming_score,
                 "realistic_score": realistic_score,
                 "details": {
@@ -290,8 +224,7 @@ class ContentAnalyzer:
                     "character_score": character_score,
                     "anime_colors_score": anime_colors_score,
                     "anime_lines_score": anime_lines_score,
-                    "vintage_vs_modern": f"{vintage_score:.3f} vs {modern_score:.3f}",
-                    "decision_logic": "anime_first_priority",
+                    "decision_logic": "anime_first_simple",
                     "resolution": f"{w}x{h}"
                 }
             })
@@ -301,10 +234,35 @@ class ContentAnalyzer:
         
         return results
     
+    # Anime-vs-rest decision thresholds. The anime threshold is deliberately
+    # low: on this app's typical inputs (gaming/anime GIFs) a false "anime"
+    # costs little, while missing anime picks a clearly worse model.
+    _ANIME_THRESHOLD = 0.30
+    _WEAK_ANIME_THRESHOLD = 0.15
+
+    @staticmethod
+    def _decide(anime: float, gaming: float, realistic: float):
+        """Map the three scores to (type, model, characteristics, confidence).
+
+        Priority: anime > gaming > realistic > weak-anime fallback > mixed.
+        """
+        if anime > ContentAnalyzer._ANIME_THRESHOLD:
+            return ("anime", "realesr-animevideov3-x4", ["anime"],
+                    min(1.0, anime * 1.3))
+        if gaming > 0.5:
+            return "gaming", "realesrgan-x4plus", ["gaming"], gaming
+        if realistic > 0.5:
+            return "realistic", "realesrnet-x4plus", ["realistic"], realistic
+        if anime > ContentAnalyzer._WEAK_ANIME_THRESHOLD:
+            # Nothing is clear but there are anime hints - the anime model is
+            # still the safest bet for this app's audience.
+            return "anime", "realesr-animevideov3-x4", ["possible_anime"], 0.6
+        return "mixed", "realesrgan-x4plus", ["mixed_content"], 0.5
+
     # =================================================================
     # FUNCIONES ESPECÍFICAS AJUSTADAS
     # =================================================================
-    
+
     @staticmethod
     def _detect_anime_characters(img_array: np.ndarray) -> float:
         """Score 0–1 based on anime character indicators: skin tones, unnatural hair colors, large eye-circles."""
@@ -480,83 +438,6 @@ class ContentAnalyzer:
             logger.debug("Error en líneas anime: %s", e)
             return 0.0
     
-    @staticmethod
-    def _detect_vintage_quality(img_array: np.ndarray) -> float:
-        """Score 0–1 for vintage indicators: low resolution, 8x8 DCT blocking artifacts, muted saturation."""
-        try:
-            h, w = img_array.shape[:2]
-            vintage_score = 0.0
-            
-            # 1. Resolución relativamente baja
-            total_pixels = h * w
-            if total_pixels < 640 * 480:
-                vintage_score += 0.5
-            elif total_pixels < 1024 * 768:
-                vintage_score += 0.3
-            
-            # 2. Compresión/artifacts
-            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-            
-            # Detectar blocking (típico de codecs viejos)
-            # Dividir en bloques 8x8 y analizar uniformidad
-            block_variances = []
-            for i in range(0, h-8, 8):
-                for j in range(0, w-8, 8):
-                    block = gray[i:i+8, j:j+8]
-                    block_variances.append(np.var(block))
-            
-            if block_variances:
-                avg_variance = np.mean(block_variances)
-                # Baja varianza = bloques uniformes = compresión
-                if avg_variance < 50:
-                    vintage_score += 0.3
-            
-            # 3. Colores menos saturados
-            hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
-            mean_saturation = np.mean(hsv[:, :, 1]) / 255.0
-            
-            if mean_saturation < 0.6:  # Saturación moderada
-                vintage_score += 0.2
-            
-            return min(1.0, vintage_score)
-            
-        except Exception:
-            return 0.0
-    
-    @staticmethod
-    def _detect_modern_quality(img_array: np.ndarray) -> float:
-        """Score 0–1 for modern indicators: high resolution, sharp Canny edges, high saturation."""
-        try:
-            h, w = img_array.shape[:2]
-            modern_score = 0.0
-            
-            # 1. Resolución alta
-            total_pixels = h * w
-            if total_pixels > 1920 * 1080:
-                modern_score += 0.5
-            elif total_pixels > 1280 * 720:
-                modern_score += 0.3
-            
-            # 2. Bordes muy definidos (HD)
-            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-            edges = cv2.Canny(gray, 100, 200)
-            sharp_edge_density = np.sum(edges > 0) / edges.size
-            
-            if sharp_edge_density > 0.15:
-                modern_score += 0.3
-            
-            # 3. Saturación muy alta (digital)
-            hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
-            high_saturation = np.sum(hsv[:, :, 1] > 200) / hsv[:, :, 1].size
-            
-            if high_saturation > 0.3:
-                modern_score += 0.2
-            
-            return min(1.0, modern_score)
-            
-        except Exception:
-            return 0.0
-    
     # =================================================================
     # FUNCIONES HEREDADAS (simplificadas)
     # =================================================================
@@ -623,61 +504,29 @@ class ContentAnalyzer:
         if not all_scores:
             return {}
         
-        # Promediar puntuaciones
+        # Promediar puntuaciones y aplicar la misma decisión que por frame
         merged = {
             "anime_score": np.mean([s.get("anime_score", 0) for s in all_scores]),
-            "vintage_anime_score": np.mean([s.get("vintage_anime_score", 0) for s in all_scores]),
-            "modern_anime_score": np.mean([s.get("modern_anime_score", 0) for s in all_scores]),
             "gaming_score": np.mean([s.get("gaming_score", 0) for s in all_scores]),
             "realistic_score": np.mean([s.get("realistic_score", 0) for s in all_scores])
         }
-        
+
         logger.debug("Fusión de %d frames: anime=%.3f", len(all_scores), merged['anime_score'])
 
-        # LÓGICA AJUSTADA: Priorizar anime por encima de todo
-        if merged["anime_score"] > 0.3:  # Umbral bajo para capturar anime
-            if merged["anime_score"] > 0.6:  # Alta confianza = vintage
-                content_type = "anime/vintage"
-                model = "realesr-animevideov3-x4"
-                confidence = merged["anime_score"] * 1.2
-                logger.debug("Alta confianza -> anime/vintage")
-            elif merged["vintage_anime_score"] >= merged["modern_anime_score"]:
-                content_type = "anime/vintage"
-                model = "realesr-animevideov3-x4"
-                confidence = merged["anime_score"] * 1.1
-                logger.debug("Vintage gana -> anime/vintage")
-            else:
-                content_type = "anime/modern"
-                model = "realesrgan-x4plus-anime"
-                confidence = merged["anime_score"]
-                logger.debug("Modern gana -> anime/modern")
-        else:
-            # Fallback normal
-            if merged["gaming_score"] > 0.5:
-                content_type = "gaming/mixed"
-                model = "realesrgan-x4plus"
-                confidence = merged["gaming_score"]
-            elif merged["realistic_score"] > 0.5:
-                content_type = "realistic/photo"
-                model = "realesrnet-x4plus"
-                confidence = merged["realistic_score"]
-            else:
-                content_type = "anime/vintage_fallback"  # ¡Fallback a anime!
-                model = "realesr-animevideov3-x4"
-                confidence = 0.7
-                logger.debug("Fallback -> anime/vintage")
-        
+        content_type, model, characteristics, confidence = ContentAnalyzer._decide(
+            merged["anime_score"], merged["gaming_score"], merged["realistic_score"])
+
         merged.update({
             "type": content_type,
             "recommended_model": model,
             "confidence": min(1.0, confidence),
-            "characteristics": [content_type.replace("/", "_")],
+            "characteristics": characteristics,
             "details": {
                 "frames_analyzed": len(all_scores),
-                "analysis_method": "anime_priority_adjusted"
+                "analysis_method": "anime_first_simple"
             }
         })
-        
+
         return merged
     
     @staticmethod
@@ -706,12 +555,9 @@ class ContentAnalyzer:
     def get_content_description(content_type: str) -> str:
         """Descripciones ajustadas"""
         descriptions = {
-            "anime/vintage": "Anime Vintage — One Piece, Dragon Ball (mejor: realesr-animevideov3-x4)",
-            "anime/modern": "Anime Moderno — HD con colores digitales vibrantes",
-            "anime/vintage_uncertain": "Posible Anime Vintage — amplía análisis para confirmar",
-            "anime/vintage_fallback": "Anime Vintage (fallback) — mejor apuesta para anime incierto",
-            "gaming/mixed": "Gaming — capturas de videojuegos, UI/HUD visible",
-            "realistic/photo": "Realista/Foto — fotografía o render 3D fotorrealista",
+            "anime": "Anime — dibujo/animación (mejor: realesr-animevideov3-x4)",
+            "gaming": "Gaming — capturas de videojuegos, UI/HUD visible",
+            "realistic": "Realista/Foto — fotografía o render 3D fotorrealista",
             "mixed": "Mixto — contenido variado sin tipo dominante",
         }
         return descriptions.get(content_type, "Tipo desconocido")

@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey?logo=windows)
 ![AI](https://img.shields.io/badge/AI-Real--ESRGAN%20%7C%20Real--CUGAN-orange)
-![Version](https://img.shields.io/badge/Version-3.0-blue)
+![Version](https://img.shields.io/badge/Version-2.0-blue)
 ![Lang](https://img.shields.io/badge/Lang-ES%20%7C%20EN%20%7C%20PT--BR-green)
 
 **Create stunning animated GIF artwork for every Steam profile showcase format.**
@@ -39,12 +39,42 @@ This repository contains the **free, open-source version** of WorkshopArt PRO.
 | **Faster upscaling via Python bindings** | ❌ | ✅ |
 | **Automatic Steam upload (Upload Tool)** | ❌ | ✅ |
 | **Compiled .exe — no Python needed** | ❌ | ✅ |
+| **Live animated color preview** (v2.0) | ✅ | ✅ |
+| **Video trim before GIF conversion** (v2.0) | ✅ | ✅ |
+| **Recent files shortcuts** (v2.0) | ✅ | ✅ |
+| **One-click pipeline (AI → optimize → fragment)** (v2.0) | ❌ | ✅ |
+| **Steam profile validator (level check)** (v2.0) | ❌ | ✅ |
+| **Steam pack ZIP export** (v2.0) | ❌ | ✅ |
 
 The free version covers the full conversion and fragmentation pipeline including GIF post-optimization via gifsicle (10–25% smaller output), 3-language UI, and SSIM quality metrics. AI upscaling, RIFE animation enhancement, fragment preview, Python bindings for faster batch processing, and automated upload are PRO-only.
 
 **Get the PRO .exe:**
 - [mxteoo7.itch.io/workshopart-pro](https://mxteoo7.itch.io/workshopart-pro) — one-time purchase
 - [patreon.com/mxteoo7](https://www.patreon.com/mxteoo7) — supporter tier
+
+---
+
+## What's new in v2.0
+
+- **Redesigned 4-step workflow UI** — File → Process → Fragment → Upload, with
+  keyboard shortcuts (Ctrl+O, Ctrl+1..4, F1), a configurable text size
+  (100/125/150%), a responsive layout that adapts below 1050 px width, and a
+  collapsible process log. Step names are fully translated (ES/EN/PT).
+- **Live animated color preview** — the Process step plays your GIF with the
+  contrast/saturation/vibrance/sharpness/temperature sliders applied in real
+  time, before you process anything.
+- **Video trim** — pick the exact start/end of a video in the MP4→GIF dialog.
+- **Recent files** — your last files appear as one-click shortcuts in step 1.
+- **Simpler, better content detection** — classifies anime / gaming /
+  realistic / mixed and picks the best AI model automatically.
+- **PRO: one-click pipeline** — convert → AI upscale → color enhancement →
+  fragment → optimize ≤ 5 MB, fully automatic with your selected preset.
+- **PRO: Steam profile validator** — checks your profile is public and warns
+  if you are below level 10 (showcase requirement).
+- **PRO: Steam pack ZIP export** — fragments + upload instructions + JS
+  snippets, ready to share.
+- Under the hood: full bug-fix audit, faster startup, and the codebase split
+  into small per-domain modules (`src/processing/`, `src/ui/`).
 
 ---
 
