@@ -103,6 +103,17 @@ class FragmentStep(ctk.CTkFrame):
             attach_tooltip(preview_btn, t("tip_open_preview",
                                           fallback="Ver como quedara fragmentado antes de cortar"))
 
+        pipeline_btn = ctk.CTkButton(
+            actions, text=t("pipeline_one_click", fallback="⚡ Pipeline 1-clic"),
+            command=lambda: app.run_full_pipeline(self._preset_var.get()),
+            fg_color="#8957e5", hover_color=darken("#8957e5"),
+            height=theme.MIN_BUTTON_HEIGHT, corner_radius=8,
+            font=theme.font("SMALL"))
+        pipeline_btn.pack(side="left", expand=True, fill="x", padx=Spacing.XS)
+        attach_tooltip(pipeline_btn, t(
+            "tip_pipeline",
+            fallback="Todo automatico: IA + colores + fragmentar + optimizar (PRO)"))
+
         optimize_btn = ctk.CTkButton(
             actions, text=t("optimize_size", fallback="Optimizar ≤ 5 MB"),
             command=app.optimize_to_steam_limit,

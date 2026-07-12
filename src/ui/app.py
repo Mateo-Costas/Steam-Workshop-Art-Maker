@@ -235,7 +235,9 @@ class WorkshopArtGUI(GUIMethodsMixin):
     # ------------------------------------------------------------------
     def _show_step(self, index: int) -> None:
         self._steps[index].tkraise()
-        if index == 3:
+        if index == 1:
+            self._steps[1].color_preview.refresh()
+        elif index == 3:
             self._steps[3].refresh()
 
     def _refresh_step_state(self) -> None:

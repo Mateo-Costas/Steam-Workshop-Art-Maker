@@ -177,6 +177,33 @@ class ProcessingMixin:
                                font=Fonts.SMALL, radiobutton_width=16,
                                radiobutton_height=16).pack(anchor="w", pady=2)
 
+        # Recorte (trim): elegir el segmento del video a convertir
+        ctk.CTkLabel(main_frame, text="Recorte del video",
+                     font=("Segoe UI", 10, "bold"),
+                     text_color=Colors.TEXT).pack(anchor="w", pady=(15, 5))
+
+        trim_start_var = tk.DoubleVar(value=0.0)
+        trim_end_var = tk.DoubleVar(value=float(duration))
+        trim_label = ctk.CTkLabel(main_frame, text="", font=Fonts.CAPTION,
+                                  text_color=Colors.TEXT_SECONDARY)
+
+        def _update_trim_label(*_args):
+            start, end = trim_start_var.get(), trim_end_var.get()
+            if end <= start:  # keep at least 0.5 s of clip
+                trim_end_var.set(min(float(duration), start + 0.5))
+                end = trim_end_var.get()
+            trim_label.configure(
+                text=f"Desde {start:.1f}s hasta {end:.1f}s  →  {end - start:.1f}s de GIF")
+
+        ctk.CTkSlider(main_frame, from_=0.0, to=max(0.5, float(duration)),
+                      variable=trim_start_var).pack(fill="x", pady=(0, 2))
+        ctk.CTkSlider(main_frame, from_=0.0, to=max(0.5, float(duration)),
+                      variable=trim_end_var).pack(fill="x", pady=(0, 2))
+        trim_label.pack(anchor="w")
+        trim_start_var.trace_add("write", _update_trim_label)
+        trim_end_var.trace_add("write", _update_trim_label)
+        _update_trim_label()
+
         # Opciones adicionales
         ctk.CTkLabel(main_frame, text="Opciones",
                      font=("Segoe UI", 10, "bold"),
@@ -201,8 +228,9 @@ class ProcessingMixin:
             try:
                 fps = custom_fps_var.get() if custom_var.get() else fps_var.get()
                 fps = max(1, min(60, fps))
+                clip_len = max(0.5, trim_end_var.get() - trim_start_var.get())
                 # Rough heuristic: ~0.02 MB per frame at 638x354 before quality adjustments.
-                base_size = duration * fps * 0.02
+                base_size = clip_len * fps * 0.02
 
                 if quality_var.get() == "fast":
                     base_size *= 0.7
@@ -238,6 +266,10 @@ class ProcessingMixin:
             quality = quality_var.get()
             should_resize = resize_var.get()
             should_enhance = enhance_var.get()
+            # Only pass trim bounds when the user actually moved the sliders.
+            trim_start = trim_start_var.get() if trim_start_var.get() > 0.05 else None
+            trim_end = (trim_end_var.get()
+                        if trim_end_var.get() < float(duration) - 0.05 else None)
 
             def process():
                 self._raise_if_cancelled()
@@ -257,9 +289,15 @@ class ProcessingMixin:
                     self.processor._archive_before_overwrite(_conv_dir, keep_names=[_conv_name, f"{self.current_file.stem}_converted.gif"])
                     output_path = _conv_dir / _conv_name
 
+                    if trim_start is not None or trim_end is not None:
+                        self.log_message(
+                            f"Recorte: {trim_start or 0:.1f}s → "
+                            f"{trim_end if trim_end else 'fin'}")
+
                     # Convertir usando el procesador
                     result = self.processor.convert_video_to_gif(
-                        self.current_file, output_path, fps
+                        self.current_file, output_path, fps,
+                        start_s=trim_start, end_s=trim_end,
                     )
 
                     if result:
@@ -336,6 +374,16 @@ class ProcessingMixin:
             self.fragment_previewer.create_fragment_preview(self.current_file, self.root)
         except Exception as e:
             self._ui_error("Error", f"No se pudo abrir el preview:\n{e}")
+
+    def run_full_pipeline(self, preset: str = None):
+        """Stub: 1-click pipeline (IA + optimizar + fragmentar) — replaced by the PRO patch."""
+        messagebox.showinfo(
+            "WorkshopArt PRO",
+            "El Pipeline 1-clic (IA + optimizar + fragmentar automatico) es una "
+            "funcion exclusiva de la version PRO.\n\n"
+            "Descarga el .exe compilado en:\n"
+            "https://mxteoo7.itch.io/workshopart-pro"
+        )
 
     def enhance_animation(self):
         """Stub: RIFE frame-interpolation enhancement — replaced by the PRO patch at module load."""

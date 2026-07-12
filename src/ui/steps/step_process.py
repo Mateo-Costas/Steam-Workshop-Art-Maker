@@ -3,6 +3,7 @@ import customtkinter as ctk
 
 from i18n import t
 from ui import theme
+from ui.color_preview import ColorPreviewPanel
 from ui.theme import Colors, Spacing
 from ui.widgets import SliderRow, attach_tooltip, darken, section_label
 
@@ -85,6 +86,10 @@ class ProcessStep(ctk.CTkFrame):
         app = self._app
         col = ctk.CTkScrollableFrame(self, fg_color=Colors.BG_SECONDARY,
                                      corner_radius=10)
+        section_label(col, t("live_preview", fallback="Preview en vivo"))
+        self.color_preview = ColorPreviewPanel(col, app)
+        self.color_preview.pack(fill="x", padx=Spacing.SM)
+
         section_label(col, t("color_adjustments", fallback="Ajustes de color"))
 
         rows = (

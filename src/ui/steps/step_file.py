@@ -57,10 +57,42 @@ class FileStep(ctk.CTkFrame):
             hover_color=Colors.HOVER, height=30, corner_radius=6,
             font=theme.font("CAPTION")).pack(side="right")
 
+        # --- Recent files -----------------------------------------------
+        self._recents_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._recents_frame.pack(fill="x", padx=Spacing.LG,
+                                 pady=(Spacing.SM, 0))
+        self.refresh_recents()
+
         # --- File info / preview (rendered by FilesMixin.show_file_info) ---
         app.file_info_frame = ctk.CTkFrame(self, fg_color="transparent")
         app.file_info_frame.pack(fill="both", expand=True,
                                  padx=Spacing.LG, pady=Spacing.MD)
+
+    def refresh_recents(self) -> None:
+        """Re-render the recent-files shortcut row."""
+        for child in self._recents_frame.winfo_children():
+            child.destroy()
+        recents = self._app.get_recent_files()
+        if not recents:
+            return
+        ctk.CTkLabel(self._recents_frame,
+                     text=t("recent_files", fallback="Recientes:"),
+                     font=theme.font("CAPTION"),
+                     text_color=Colors.TEXT_MUTED).pack(side="left")
+        for path in recents[:5]:
+            btn = ctk.CTkButton(
+                self._recents_frame, text=path.name, width=10,
+                command=lambda p=path: self._open_recent(p),
+                fg_color="transparent", border_width=1,
+                border_color=Colors.BORDER, hover_color=Colors.HOVER,
+                height=26, corner_radius=6, font=theme.font("CAPTION"),
+                text_color=Colors.TEXT_SECONDARY)
+            btn.pack(side="left", padx=(Spacing.XS, 0))
+            attach_tooltip(btn, str(path))
+
+    def _open_recent(self, path) -> None:
+        self._app.open_recent_file(path)
+        self.refresh_recents()
 
     def set_compact(self, compact: bool) -> None:
         """Single-column layout already; nothing to reflow."""

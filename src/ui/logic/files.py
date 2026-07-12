@@ -15,6 +15,35 @@ from ui.logic.common import _steam_format_suggestion
 class FilesMixin:
     """File picking, metadata display and GIF/video preview playback."""
 
+    #: Maximum number of entries kept in the recent-files list.
+    _MAX_RECENT_FILES = 8
+
+    def _remember_recent(self, path: Path) -> None:
+        """Prepend ``path`` to the persisted recent-files list (deduplicated)."""
+        try:
+            recent = [str(path)] + [
+                p for p in self.config.get("ui.recent_files", [])
+                if p != str(path)
+            ]
+            self.config.set("ui.recent_files", recent[: self._MAX_RECENT_FILES])
+        except Exception:
+            pass  # recents are a convenience; never break file loading
+
+    def get_recent_files(self) -> list:
+        """Return recent files that still exist on disk, most recent first."""
+        return [Path(p) for p in self.config.get("ui.recent_files", [])
+                if Path(p).exists()]
+
+    def open_recent_file(self, path: Path) -> None:
+        """Load a file from the recents list as if it had been picked."""
+        if not path.exists():
+            self._ui_warn("No encontrado", f"El archivo ya no existe:\n{path}")
+            return
+        self.current_file = path
+        self.show_file_info()
+        if self.auto_detect_var.get():
+            self.analyze_content()
+
     def select_file(self):
         """Open a file dialog to pick the source media file.
 
@@ -170,6 +199,8 @@ class FilesMixin:
         Each branch follows the same pattern: show a placeholder, decode in a thread, then
         install the frames via update_queue on the main thread.
         """
+        if self.current_file:
+            self._remember_recent(self.current_file)
         if not self.current_file:
             return
 

@@ -463,22 +463,45 @@ class GifEncodeMixin:
     def _modify_gif_hex(self, file_path: Path):
         self._patch_gif_trailer(file_path)
     
-    def convert_video_to_gif(self, video_path: Path, output_path: Path, fps: int = 24) -> Optional[Path]:
+    def convert_video_to_gif(self, video_path: Path, output_path: Path, fps: int = 24,
+                             start_s: Optional[float] = None,
+                             end_s: Optional[float] = None) -> Optional[Path]:
         """Convert any FFmpeg-readable video to a GIF at the configured Steam profile resolution.
-        Uses 2-pass palette (palettegen + paletteuse) for optimal color quality. Returns output path or None."""
+
+        Uses 2-pass palette (palettegen + paletteuse) for optimal color quality.
+
+        Args:
+            video_path: Source video file.
+            output_path: Destination .gif path.
+            fps: Target frame rate.
+            start_s: Optional trim start in seconds (accurate seek, after -i).
+            end_s: Optional trim end in seconds.
+
+        Returns:
+            The output path, or None on failure.
+        """
         if not self.check_ffmpeg():
             logger.error("❌ FFmpeg no disponible para conversión de video")
             return None
-        
+
         width = self.config.get('steam_profile.width')
         height = self.config.get('steam_profile.height')
-        
+
         logger.info(f"🎬 Convirtiendo video a GIF: {video_path} -> {output_path}")
         logger.info(f"📊 Configuración: {width}x{height} @ {fps} FPS")
-        
+
+        trim_args = []
+        if start_s is not None and start_s > 0:
+            trim_args += ["-ss", f"{start_s:.3f}"]
+        if end_s is not None and end_s > 0:
+            trim_args += ["-to", f"{end_s:.3f}"]
+        if trim_args:
+            logger.info(f"✂️ Recorte: {start_s or 0:.1f}s → {end_s if end_s else 'fin'}s")
+
         cmd = [
             str(self.ffmpeg_path),
             "-i", str(video_path),
+            *trim_args,
             "-vf", (
                 f"fps={fps},"                                              # resample to target frame rate
                 f"scale={width}:{height}:flags=lanczos,"                  # resize with Lanczos

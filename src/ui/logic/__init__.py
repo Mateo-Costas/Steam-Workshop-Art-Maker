@@ -28,6 +28,11 @@ try:
     GUIMethodsMixin.process_full_ai = _pf.process_full_ai
     GUIMethodsMixin._fragment_workshop_flow = _pf.fragment_workshop_flow
     GUIMethodsMixin.enhance_animation = _pf.enhance_animation
+    # Newer PRO features: patch only when the installed _pro_features has them.
+    for _method in ("run_full_pipeline", "validate_steam_profile",
+                    "export_steam_pack"):
+        if hasattr(_pf, _method):
+            setattr(GUIMethodsMixin, _method, getattr(_pf, _method))
 except ImportError:
     pass
 

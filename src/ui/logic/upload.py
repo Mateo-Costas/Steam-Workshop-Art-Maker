@@ -11,6 +11,26 @@ from ui.logic.common import _NO_WINDOW_FLAGS
 class UploadMixin:
     """Upload Tool subprocess launcher and cookie-based auto-upload."""
 
+    def validate_steam_profile(self):
+        """Stub: Steam profile validator — replaced by the PRO patch at module load."""
+        messagebox.showinfo(
+            "WorkshopArt PRO",
+            "El validador de perfil Steam (nivel, showcases disponibles) es una "
+            "funcion exclusiva de la version PRO.\n\n"
+            "Descarga el .exe compilado en:\n"
+            "https://mxteoo7.itch.io/workshopart-pro"
+        )
+
+    def export_steam_pack(self):
+        """Stub: ZIP export of fragments + instructions — replaced by the PRO patch."""
+        messagebox.showinfo(
+            "WorkshopArt PRO",
+            "El export ZIP (fragmentos + instrucciones listos para compartir) es una "
+            "funcion exclusiva de la version PRO.\n\n"
+            "Descarga el .exe compilado en:\n"
+            "https://mxteoo7.itch.io/workshopart-pro"
+        )
+
     def _launch_upload_tool(self, fragments=None, preset: str = None):
         """Launch the Upload Tool as a subprocess, passing fragment paths and preset as CLI args.
 
