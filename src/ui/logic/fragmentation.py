@@ -1406,6 +1406,6 @@ class FragmentationMixin:
 # without changing any call sites.
 #
 # _pro_features.py is gitignored and not included in the public GitHub repo; the
-# ImportError branch is the normal code path for open-source users.
+# ImportError branch is the normal code path for public-repo users.
 # ---------------------------------------------------------------------------
 

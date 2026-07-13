@@ -121,7 +121,7 @@ class ProcessStep(ctk.CTkFrame):
             (t("mp4_to_gif", fallback="MP4 → GIF"), app.convert_mp4_to_gif,
              Colors.WARNING, t("tip_mp4_to_gif", fallback="Convertir video a GIF")),
             (t("enhance_animation", fallback="Mejorar animacion"), app.enhance_animation,
-             "#e67e22", t("tip_enhance_animation", fallback="Interpolacion RIFE (PRO)")),
+             "#e67e22", t("tip_enhance_animation", fallback="Interpolacion RIFE")),
             (t("download_models", fallback="Descargar modelos"), app.download_models,
              Colors.BG_TERTIARY, t("tip_download_models", fallback="Descargar modelos de IA (~70 MB)")),
         )

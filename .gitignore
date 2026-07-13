@@ -14,7 +14,6 @@ dist/
 build/
 *.spec.bak
 *.manifest
-WorkshopArt_PRO_*.spec
 
 # Runtime app data
 SteamWorkshopAppData/
@@ -75,14 +74,8 @@ memory/
 .env
 .env.*
 
-# Personal Steam auto-upload (private, per-user)
-src/steam_uploader.py
+# Personal Steam auto-upload credentials (never commit)
 steam_cookies.json
-upload_tool.py
-
-# PRO-only features (implementacion real, gitignoreada)
-src/_pro_features.py
-src/fragment_preview.py
 
 # IDE / Editor
 .vscode/
@@ -102,3 +95,6 @@ Desktop.ini
 # Misc
 *.bak
 *.orig
+
+# Build artifacts
+build_log.txt

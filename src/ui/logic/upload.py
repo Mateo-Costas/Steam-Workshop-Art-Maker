@@ -14,21 +14,21 @@ class UploadMixin:
     def validate_steam_profile(self):
         """Stub: Steam profile validator — replaced by the PRO patch at module load."""
         messagebox.showinfo(
-            "WorkshopArt PRO",
+            "WorkshopArt",
             "El validador de perfil Steam (nivel, showcases disponibles) es una "
-            "funcion exclusiva de la version PRO.\n\n"
-            "Descarga el .exe compilado en:\n"
-            "https://mxteoo7.itch.io/workshopart-pro"
+            "no disponible en esta copia (falta el modulo).\n\n"
+            "Descarga el repositorio completo en:\n"
+            "https://github.com/Mateo-Costas/Steam-Workshop-Art-Maker"
         )
 
     def export_steam_pack(self):
         """Stub: ZIP export of fragments + instructions — replaced by the PRO patch."""
         messagebox.showinfo(
-            "WorkshopArt PRO",
+            "WorkshopArt",
             "El export ZIP (fragmentos + instrucciones listos para compartir) es una "
-            "funcion exclusiva de la version PRO.\n\n"
-            "Descarga el .exe compilado en:\n"
-            "https://mxteoo7.itch.io/workshopart-pro"
+            "no disponible en esta copia (falta el modulo).\n\n"
+            "Descarga el repositorio completo en:\n"
+            "https://github.com/Mateo-Costas/Steam-Workshop-Art-Maker"
         )
 
     def _launch_upload_tool(self, fragments=None, preset: str = None):
@@ -52,10 +52,10 @@ class UploadMixin:
                 if not upload_tool_path.exists():
                     # upload_tool.py is not included in the public repo — show upgrade prompt.
                     messagebox.showinfo(
-                        "WorkshopArt PRO",
-                        "El Upload Tool automatico es una funcion exclusiva de la version PRO.\n\n"
-                        "Descarga el .exe compilado en:\n"
-                        "https://mxteoo7.itch.io/workshopart-pro\n\n"
+                        "WorkshopArt",
+                        "El Upload Tool automatico no esta disponible en esta copia (falta el modulo).\n\n"
+                        "Descarga el repositorio completo en:\n"
+                        "https://github.com/Mateo-Costas/Steam-Workshop-Art-Maker\n\n"
                         "La version gratuita incluye todos los presets y procesamiento IA.\n"
                         "Puedes subir los fragmentos manualmente siguiendo las instrucciones del README."
                     )

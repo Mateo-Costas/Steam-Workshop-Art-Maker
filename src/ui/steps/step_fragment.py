@@ -112,7 +112,7 @@ class FragmentStep(ctk.CTkFrame):
         pipeline_btn.pack(side="left", expand=True, fill="x", padx=Spacing.XS)
         attach_tooltip(pipeline_btn, t(
             "tip_pipeline",
-            fallback="Todo automatico: IA + colores + fragmentar + optimizar (PRO)"))
+            fallback="Todo automatico: IA + colores + fragmentar + optimizar"))
 
         optimize_btn = ctk.CTkButton(
             actions, text=t("optimize_size", fallback="Optimizar ≤ 5 MB"),

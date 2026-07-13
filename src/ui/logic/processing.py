@@ -17,10 +17,10 @@ class ProcessingMixin:
     def process_full_ai(self):
         """Stub: AI upscaling (Real-ESRGAN/Real-CUGAN) — replaced by the PRO patch at module load."""
         messagebox.showinfo(
-            "WorkshopArt PRO",
-            "El procesamiento con IA (Real-ESRGAN / Real-CUGAN) es una funcion exclusiva de la version PRO.\n\n"
-            "Descarga el .exe compilado en:\n"
-            "https://mxteoo7.itch.io/workshopart-pro\n\n"
+            "WorkshopArt",
+            "El procesamiento con IA (Real-ESRGAN / Real-CUGAN) no esta disponible en esta copia (falta el modulo).\n\n"
+            "Descarga el repositorio completo en:\n"
+            "https://github.com/Mateo-Costas/Steam-Workshop-Art-Maker\n\n"
             "La version gratuita incluye conversion MP4-a-GIF, mejora de colores,\n"
             "mejora de animacion y fragmentacion para todos los presets de Steam."
         )
@@ -378,20 +378,20 @@ class ProcessingMixin:
     def run_full_pipeline(self, preset: str = None):
         """Stub: 1-click pipeline (IA + optimizar + fragmentar) — replaced by the PRO patch."""
         messagebox.showinfo(
-            "WorkshopArt PRO",
+            "WorkshopArt",
             "El Pipeline 1-clic (IA + optimizar + fragmentar automatico) es una "
-            "funcion exclusiva de la version PRO.\n\n"
-            "Descarga el .exe compilado en:\n"
-            "https://mxteoo7.itch.io/workshopart-pro"
+            "no disponible en esta copia (falta el modulo).\n\n"
+            "Descarga el repositorio completo en:\n"
+            "https://github.com/Mateo-Costas/Steam-Workshop-Art-Maker"
         )
 
     def enhance_animation(self):
         """Stub: RIFE frame-interpolation enhancement — replaced by the PRO patch at module load."""
         messagebox.showinfo(
-            "WorkshopArt PRO",
-            "La mejora de animacion con RIFE IA es una funcion exclusiva de la version PRO.\n\n"
-            "Descarga el .exe compilado en:\n"
-            "https://mxteoo7.itch.io/workshopart-pro\n\n"
+            "WorkshopArt",
+            "La mejora de animacion con RIFE IA no esta disponible en esta copia (falta el modulo).\n\n"
+            "Descarga el repositorio completo en:\n"
+            "https://github.com/Mateo-Costas/Steam-Workshop-Art-Maker\n\n"
             "La version gratuita incluye conversion MP4-a-GIF, mejora de colores,\n"
             "fragmentacion para todos los presets de Steam y procesamiento IA."
         )

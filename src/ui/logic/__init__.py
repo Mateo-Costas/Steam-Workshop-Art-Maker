@@ -21,7 +21,7 @@ class GUIMethodsMixin(SystemMixin, FilesMixin, ProcessingMixin,
 
 
 # PRO feature patch: _pro_features.py is gitignored and absent in the public
-# repo; the ImportError branch is the normal code path for open-source users.
+# repo; the ImportError branch is the normal code path for public-repo users.
 try:
     import _pro_features as _pf
 

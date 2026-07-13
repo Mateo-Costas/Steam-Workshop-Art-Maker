@@ -1,4 +1,4 @@
-# WorkshopArt PRO v3.0 - Dependencias (versión FREE / GitHub)
+# WorkshopArt v2.0 - Dependencias (versión completa)
 
 # === CORE ===
 pillow>=10.0.0,<11.0.0

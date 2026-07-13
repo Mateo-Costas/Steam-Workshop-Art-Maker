@@ -1,4 +1,4 @@
-# WorkshopArt PRO
+# WorkshopArt
 
 <div align="center">
 
@@ -18,39 +18,17 @@ Transform videos and GIFs into upload-ready fragments for any Steam showcase —
 
 ---
 
-## Free vs PRO
+## 100% Free — Full Version
 
-This repository contains the **free, open-source version** of WorkshopArt PRO.
+As of v2.0, **this repository contains the FULL version of WorkshopArt, free for personal use** — AI upscaling (Real-ESRGAN / Real-CUGAN), RIFE animation enhancement, fragment preview, one-click pipeline, Steam profile validator, ZIP export and the automatic Steam Upload Tool. Everything included, no paid tier.
 
-| Feature | Free (this repo) | PRO (Itch.io / Patreon) |
-|---|---|---|
-| All 9 showcase presets | ✅ | ✅ |
-| MP4-to-GIF conversion | ✅ | ✅ |
-| gifski encoder | ✅ | ✅ |
-| Color enhancement | ✅ | ✅ |
-| **gifsicle post-optimization** (auto-download) | ✅ | ✅ |
-| **3-language UI** (ES / EN / PT-BR) | ✅ | ✅ |
-| **VRAM display** in GPU info | ✅ | ✅ |
-| **SSIM quality metric** in quality report | ✅ | ✅ |
-| Zero-config auto-download of tools | ✅ | ✅ |
-| **AI upscaling (Real-ESRGAN / Real-CUGAN)** | ❌ | ✅ |
-| **Animation enhancement (RIFE)** | ❌ | ✅ |
-| **GIF fragment preview** | ❌ | ✅ |
-| **Faster upscaling via Python bindings** | ❌ | ✅ |
-| **Automatic Steam upload (Upload Tool)** | ❌ | ✅ |
-| **Compiled .exe — no Python needed** | ❌ | ✅ |
-| **Live animated color preview** (v2.0) | ✅ | ✅ |
-| **Video trim before GIF conversion** (v2.0) | ✅ | ✅ |
-| **Recent files shortcuts** (v2.0) | ✅ | ✅ |
-| **One-click pipeline (AI → optimize → fragment)** (v2.0) | ❌ | ✅ |
-| **Steam profile validator (level check)** (v2.0) | ❌ | ✅ |
-| **Steam pack ZIP export** (v2.0) | ❌ | ✅ |
+The source is public so you can read and verify it, but it is **not** open source: see [LICENSE](LICENSE) — free for personal, non-commercial use only.
 
-The free version covers the full conversion and fragmentation pipeline including GIF post-optimization via gifsicle (10–25% smaller output), 3-language UI, and SSIM quality metrics. AI upscaling, RIFE animation enhancement, fragment preview, Python bindings for faster batch processing, and automated upload are PRO-only.
+Notes for the auto-upload feature:
+- Install `browser_cookie3` (`pip install browser_cookie3`) or create a `steam_cookies.json` file (see the in-app instructions in the Subir step).
+- **Never commit or share your `steam_cookies.json`** — it contains your Steam session.
 
-**Get the PRO .exe:**
-- [mxteoo7.itch.io/workshopart-pro](https://mxteoo7.itch.io/workshopart-pro) — one-time purchase
-- [patreon.com/mxteoo7](https://www.patreon.com/mxteoo7) — supporter tier
+Want to support development? [Itch.io](https://mxteoo7.itch.io/workshopart-pro) (compiled .exe, no Python needed) · [Patreon](https://www.patreon.com/mxteoo7)
 
 ---
 
@@ -65,13 +43,13 @@ The free version covers the full conversion and fragmentation pipeline including
   time, before you process anything.
 - **Video trim** — pick the exact start/end of a video in the MP4→GIF dialog.
 - **Recent files** — your last files appear as one-click shortcuts in step 1.
-- **Simpler, better content detection** — classifies anime / gaming /
-  realistic / mixed and picks the best AI model automatically.
-- **PRO: one-click pipeline** — convert → AI upscale → color enhancement →
+- **Anime-aware model selection** — a simple "is your content anime?"
+  selector picks the best matching AI model (anime vs. general upscaler).
+- **One-click pipeline** — convert → AI upscale → color enhancement →
   fragment → optimize ≤ 5 MB, fully automatic with your selected preset.
-- **PRO: Steam profile validator** — checks your profile is public and warns
+- **Steam profile validator** — checks your profile is public and warns
   if you are below level 10 (showcase requirement).
-- **PRO: Steam pack ZIP export** — fragments + upload instructions + JS
+- **Steam pack ZIP export** — fragments + upload instructions + JS
   snippets, ready to share.
 - Under the hood: full bug-fix audit, faster startup, and the codebase split
   into small per-domain modules (`src/processing/`, `src/ui/`).
@@ -318,7 +296,7 @@ Steam-Workshop-Art-Maker/
 
 | Problem | Solution |
 |---|---|
-| **Windows SmartScreen blocks the .exe** | Click **"More info" → "Run anyway"**. The warning appears because the exe has no code-signing certificate. The app is open-source; you can verify the source code in this repo. |
+| **Windows SmartScreen blocks the .exe** | Click **"More info" → "Run anyway"**. The warning appears because the exe has no code-signing certificate. The full source is public in this repo, so you can verify it. |
 | GPU not detected | Update AMD / NVIDIA drivers; ensure Vulkan is supported |
 | VRAM shows 0 or wrong value | On AMD, Windows wmic has a 4 GB overflow bug for GPUs >4 GB. Processing still works correctly; only the display is affected. |
 | Processing is slow | Enable the GPU toggle in the right panel |

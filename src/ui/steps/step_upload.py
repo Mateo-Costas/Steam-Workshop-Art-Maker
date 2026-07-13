@@ -70,15 +70,15 @@ class UploadStep(ctk.CTkFrame):
              t("tip_open_workshop", fallback="Abrir la pagina de subida de Steam")),
             (t("upload_tool", fallback="Upload Tool"),
              app._launch_upload_tool, "#16a34a",
-             t("tip_upload_tool", fallback="Subida automatica (PRO)")),
+             t("tip_upload_tool", fallback="Subida automatica")),
             (t("validate_profile", fallback="Validar perfil"),
              app.validate_steam_profile, "#8957e5",
              t("tip_validate_profile",
-               fallback="Comprobar tu perfil Steam y nivel para showcases (PRO)")),
+               fallback="Comprobar tu perfil Steam y nivel para showcases")),
             (t("export_zip", fallback="Export ZIP"),
              app.export_steam_pack, "#8957e5",
              t("tip_export_zip",
-               fallback="Empaquetar fragmentos + instrucciones en un ZIP (PRO)")),
+               fallback="Empaquetar fragmentos + instrucciones en un ZIP")),
         )
         for text, command, color, tip in buttons:
             btn = ctk.CTkButton(actions, text=text, command=command,
