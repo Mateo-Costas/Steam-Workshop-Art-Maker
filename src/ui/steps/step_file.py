@@ -42,20 +42,28 @@ class FileStep(ctk.CTkFrame):
         attach_tooltip(select_btn, t("tip_open_file",
                                      fallback="Abrir un archivo multimedia (Ctrl+O)"))
 
-        # --- Analysis toggle -------------------------------------------
+        # --- Content type: the user says whether it's anime -------------
+        # A manual toggle replaced the CV auto-detection, which misclassified
+        # too often; the choice drives the recommended AI model.
         options = ctk.CTkFrame(self, fg_color="transparent")
         options.pack(fill="x", padx=Spacing.LG)
-        ctk.CTkCheckBox(
-            options, text=t("auto_detect_model",
-                            fallback="Detectar tipo de contenido automaticamente"),
-            variable=app.auto_detect_var, font=theme.font("SMALL"),
-            checkbox_width=18, checkbox_height=18).pack(side="left")
-        ctk.CTkButton(
-            options, text=t("analyze_now", fallback="Analizar ahora"),
-            command=app.analyze_content, width=140,
-            fg_color="transparent", border_width=1, border_color=Colors.BORDER,
-            hover_color=Colors.HOVER, height=30, corner_radius=6,
-            font=theme.font("CAPTION")).pack(side="right")
+        ctk.CTkLabel(options,
+                     text=t("is_anime_question", fallback="¿Tu contenido es anime?"),
+                     font=theme.font("SMALL"),
+                     text_color=Colors.TEXT).pack(side="left")
+        self._anime_yes = t("anime_yes", fallback="Sí, anime")
+        self._anime_no = t("anime_no", fallback="No")
+        selector = ctk.CTkSegmentedButton(
+            options, values=[self._anime_yes, self._anime_no],
+            command=self._on_anime_choice, font=theme.font("SMALL"),
+            height=30, selected_color=Colors.ACCENT,
+            selected_hover_color=darken(Colors.ACCENT))
+        selector.set(self._anime_yes if app.config.get("ui.is_anime", True)
+                     else self._anime_no)
+        selector.pack(side="left", padx=(Spacing.MD, 0))
+        attach_tooltip(selector, t(
+            "tip_is_anime",
+            fallback="Elige el tipo de contenido para recomendar el mejor modelo de IA"))
 
         # --- Recent files -----------------------------------------------
         self._recents_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -89,6 +97,9 @@ class FileStep(ctk.CTkFrame):
                 text_color=Colors.TEXT_SECONDARY)
             btn.pack(side="left", padx=(Spacing.XS, 0))
             attach_tooltip(btn, str(path))
+
+    def _on_anime_choice(self, value: str) -> None:
+        self._app.set_content_is_anime(value == self._anime_yes)
 
     def _open_recent(self, path) -> None:
         self._app.open_recent_file(path)

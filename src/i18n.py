@@ -590,6 +590,10 @@ ES = {
     "restart_for_scale": "El nuevo tamano de texto se aplicara al reiniciar la aplicacion.",
     "tip_font_scale": "Tamano del texto (requiere reiniciar)",
     "tip_help": "Guia completa (F1)",
+    "is_anime_question": "¿Tu contenido es anime?",
+    "anime_yes": "Sí, anime",
+    "anime_no": "No",
+    "tip_is_anime": "Elige el tipo de contenido para recomendar el mejor modelo de IA",
 }
 
 EN = {
@@ -1159,6 +1163,10 @@ EN = {
     "restart_for_scale": "The new text size will apply after restarting the app.",
     "tip_font_scale": "Text size (requires restart)",
     "tip_help": "Full guide (F1)",
+    "is_anime_question": "Is your content anime?",
+    "anime_yes": "Yes, anime",
+    "anime_no": "No",
+    "tip_is_anime": "Pick the content type to recommend the best AI model",
 }
 
 PT = {
@@ -1728,6 +1736,10 @@ PT = {
     "restart_for_scale": "O novo tamanho de texto será aplicado ao reiniciar o aplicativo.",
     "tip_font_scale": "Tamanho do texto (requer reiniciar)",
     "tip_help": "Guia completo (F1)",
+    "is_anime_question": "Seu conteúdo é anime?",
+    "anime_yes": "Sim, anime",
+    "anime_no": "Não",
+    "tip_is_anime": "Escolha o tipo de conteúdo para recomendar o melhor modelo de IA",
 }
 
 _LANGS = {"ES": ES, "EN": EN, "PT": PT}

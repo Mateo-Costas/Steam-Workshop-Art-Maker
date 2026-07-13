@@ -314,6 +314,9 @@ class SystemMixin:
                 self.model_combo.set(model_options[0])
                 self.model_var.set(available_models[0])
                 self.update_model_info()
+                # Apply the persisted anime/no-anime choice now that the
+                # installed-model list is known.
+                self.set_content_is_anime(self.config.get("ui.is_anime", True))
 
         self.update_queue.put((update, ()))
 
@@ -343,6 +346,49 @@ class SystemMixin:
                      font=Fonts.CAPTION,
                      text_color=Colors.TEXT_SECONDARY).pack(anchor="w", pady=(5, 0))
 
+    # Model preference per user's anime/no-anime choice, best first.
+    # Only models actually present on disk are considered.
+    _ANIME_MODEL_PRIORITY = (
+        "realesr-animevideov3-x4", "realesrgan-x4plus-anime",
+        "cugan-se-4x-no-denoise", "realesr-animevideov3-x3",
+    )
+    _GENERAL_MODEL_PRIORITY = (
+        "realesrgan-x4plus", "realesr-general-x4v3", "realesrnet-x4plus",
+    )
+
+    def set_content_is_anime(self, is_anime: bool) -> None:
+        """Apply the user's anime/no-anime choice: persist it and select the model.
+
+        Replaces the former CV auto-detection, which misclassified too often.
+        The user knows what their content is; we just map the answer to the
+        best installed model.
+        """
+        self.config.set("ui.is_anime", bool(is_anime))
+        available = self.processor.model_manager.check_available_models()
+        priority = (self._ANIME_MODEL_PRIORITY if is_anime
+                    else self._GENERAL_MODEL_PRIORITY)
+        chosen = next((m for m in priority if m in available), None)
+        if chosen is None:
+            chosen = available[0] if available else None
+        if chosen is None:
+            return  # no models installed yet; nothing to select
+
+        def apply():
+            try:
+                for value in (self.model_combo.cget("values") or []):
+                    if str(value).split(" - ")[0] == chosen:
+                        self.model_combo.set(value)
+                        break
+                else:
+                    self.model_combo.set(chosen)
+                self.model_var.set(chosen)
+                self.update_model_info()
+            except Exception:
+                pass
+
+        self.update_queue.put((apply, ()))
+        self.log_message(
+            f"Contenido: {'anime' if is_anime else 'no anime'} → modelo {chosen}")
 
     def download_models(self):
         """Show a confirmation dialog then download all AI models in a background thread.

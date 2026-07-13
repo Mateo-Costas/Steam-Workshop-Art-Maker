@@ -41,8 +41,6 @@ class FilesMixin:
             return
         self.current_file = path
         self.show_file_info()
-        if self.auto_detect_var.get():
-            self.analyze_content()
 
     def select_file(self):
         """Open a file dialog to pick the source media file.
@@ -63,9 +61,6 @@ class FilesMixin:
         if filename:
             self.current_file = Path(filename)
             self.show_file_info()
-
-            if self.auto_detect_var.get():
-                self.analyze_content()
 
     # PARTE 2/3 - CONTINÚA DESDE select_file()
 

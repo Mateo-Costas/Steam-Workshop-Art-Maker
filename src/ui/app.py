@@ -102,7 +102,6 @@ class WorkshopArtGUI(GUIMethodsMixin):
         self.temperature_var = tk.DoubleVar(value=0.0)
         self.enhance_colors_var = tk.BooleanVar(value=True)
         self.fps_60_var = tk.BooleanVar()
-        self.auto_detect_var = tk.BooleanVar(value=True)
 
         self._cancel_event = threading.Event()
         self.update_queue = queue.Queue()
@@ -327,8 +326,6 @@ class WorkshopArtGUI(GUIMethodsMixin):
                     self.current_file = path
                     self._stepper.select(0)
                     self.show_file_info()
-                    if self.auto_detect_var.get():
-                        self.analyze_content()
                     return
             messagebox.showwarning(
                 t("unsupported_format_title", fallback="Formato no soportado"),

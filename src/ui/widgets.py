@@ -53,9 +53,12 @@ def attach_tooltip(widget, text: str) -> None:
                 pass
             widget._tooltip = None
 
-    widget.bind("<Enter>", on_enter, add="+")
-    widget.bind("<Leave>", on_leave, add="+")
-    widget.bind("<Destroy>", on_leave, add="+")
+    try:
+        widget.bind("<Enter>", on_enter, add="+")
+        widget.bind("<Leave>", on_leave, add="+")
+        widget.bind("<Destroy>", on_leave, add="+")
+    except NotImplementedError:
+        pass  # some CTk widgets (e.g. CTkSegmentedButton) don't support bind
 
 
 class Stepper(ctk.CTkFrame):
