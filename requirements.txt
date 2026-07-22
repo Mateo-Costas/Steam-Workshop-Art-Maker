@@ -2,8 +2,9 @@
 
 # === CORE ===
 pillow>=12.3.0,<13.0.0
-# moviepy: fijado a <2.0.0 porque el codigo usa "from moviepy.editor import VideoFileClip",
-# modulo eliminado en moviepy 2.x (API reescrita, breaking change).
+# moviepy: fijado a <2.0.0 porque moviepy 2.x exige pillow<12, incompatible con el
+# fix de seguridad pillow>=12.3.0. El codigo importa VideoFileClip de forma compatible
+# con ambas versiones (moviepy.editor en 1.x, namespace raiz en 2.x).
 moviepy>=1.0.3,<2.0.0
 opencv-python>=4.8.0,<5.0.0
 numpy>=1.24.0,<2.0.0

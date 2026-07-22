@@ -107,8 +107,14 @@ class SystemMixin:
 
         moviepy triggers heavy transitive imports (numpy, imageio, etc.) that add ~2 s to
         startup. Deferring the import to the first video operation keeps the app launch fast.
+
+        Supports both moviepy 1.x (VideoFileClip lives in moviepy.editor) and 2.x
+        (moved to the top-level moviepy namespace).
         """
-        from moviepy.editor import VideoFileClip
+        try:
+            from moviepy import VideoFileClip  # moviepy >= 2.0
+        except ImportError:
+            from moviepy.editor import VideoFileClip  # moviepy 1.x
         return VideoFileClip
 
     def _run_cancellable(self, process_fn):

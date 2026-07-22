@@ -39,7 +39,10 @@ class FramesMixin:
         """Extract all video frames as RGB PNGs using moviepy. Returns the source FPS, or None on failure."""
         try:
             output_dir.mkdir(exist_ok=True)
-            from moviepy.editor import VideoFileClip
+            try:
+                from moviepy import VideoFileClip  # moviepy >= 2.0
+            except ImportError:
+                from moviepy.editor import VideoFileClip  # moviepy 1.x
 
             with VideoFileClip(str(video_path)) as clip:
                 fps = clip.fps
