@@ -5,25 +5,28 @@ Computes image quality metrics (SSIM, sharpness, noise, color gamut, file size)
 for the original and processed files, calculates per-metric improvements, and
 renders a side-by-side comparison window using tkinter + matplotlib.
 
-Used only in the PRO build when QualityReportSystem is available; the free build
-stubs out both create_quality_report() and show_quality_report_window() in gui.py.
+Shown after an AI processing run (ui.logic.processing.process_full_ai).
 """
 
 import logging
 import tkinter as tk
-from tkinter import ttk
-from PIL import Image, ImageTk, ImageDraw, ImageFont
-import numpy as np
-import cv2
-from pathlib import Path
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
+from tkinter import messagebox, ttk
+
+import cv2
+import numpy as np
+from PIL import Image, ImageTk
+
+from gif_utils import open_gif, read_timing
+from video_utils import first_frame, is_video, probe_video
 
 # matplotlib is imported lazily inside the chart-rendering method: importing
 # pyplot at module load added 1-2 s to app startup for a feature that is only
 # used after an AI processing run.
 
-logger = logging.getLogger("WorkshopArtPRO.quality_report")
+logger = logging.getLogger("WorkshopArt.quality_report")
 
 class QualityReportSystem:
     """Sistema para generar reportes de calidad detallados"""
@@ -79,24 +82,19 @@ class QualityReportSystem:
             file_size = file_path.stat().st_size / (1024 * 1024)  # MB
             metrics["file_size_mb"] = file_size
             
-            # Cargar imagen
+            img_array = np.array(_first_frame_rgb(file_path))
             if file_path.suffix.lower() == '.gif':
-                with Image.open(file_path) as img:
-                    # Para GIF, analizar primer frame
-                    first_frame = img.convert('RGB')
-                    img_array = np.array(first_frame)
-                    
-                    # Información específica del GIF
-                    metrics["frame_count"] = getattr(img, 'n_frames', 1)
-                    metrics["duration_ms"] = img.info.get('duration', 100)
-                    metrics["fps"] = 1000 / metrics["duration_ms"] if metrics["duration_ms"] > 0 else 10
+                timing = read_timing(file_path)
+                metrics["frame_count"] = timing.frames
+                metrics["fps"] = timing.frames * 1000 / max(1, timing.duration_ms)
+            elif is_video(file_path):
+                info = probe_video(file_path)
+                metrics["frame_count"] = info.frames
+                metrics["fps"] = info.fps
             else:
-                with Image.open(file_path) as img:
-                    img_rgb = img.convert('RGB')
-                    img_array = np.array(img_rgb)
-                    metrics["frame_count"] = 1
-                    metrics["fps"] = 0
-            
+                metrics["frame_count"] = 1
+                metrics["fps"] = 0
+
             # Resolución
             h, w = img_array.shape[:2]
             metrics["resolution"] = (w, h)
@@ -371,6 +369,7 @@ class QualityReportSystem:
             report_window.title("Quality Report - WorkshopArt")
             report_window.geometry("900x700")
             report_window.configure(bg=self.theme["bg_primary"])
+            self._apply_styles(report_window)
             
             # Hacer modal
             report_window.transient(parent_window)
@@ -479,41 +478,22 @@ class QualityReportSystem:
     def _display_image_preview(self, parent, image_path: Path, label: str):
         """Mostrar preview de imagen"""
         try:
-            # Cargar imagen
-            with Image.open(image_path) as img:
-                if img.format == 'GIF':
-                    # Para GIF, mostrar primer frame
-                    display_img = img.convert('RGB')
-                else:
-                    display_img = img.convert('RGB')
-                
-                # Redimensionar para preview
-                max_size = (300, 200)
-                display_img.thumbnail(max_size, Image.Resampling.LANCZOS)
-                
-                # Convertir a PhotoImage
-                photo = ImageTk.PhotoImage(display_img)
-                
-                # Mostrar en label
-                img_label = ttk.Label(parent, image=photo)
-                img_label.image = photo  # Mantener referencia
-                img_label.pack(pady=10)
-                
-                # Info básica
-                original_size = img.size
-                file_size = image_path.stat().st_size / (1024 * 1024)
-                
-                info_text = f"{original_size[0]}x{original_size[1]} px\n{file_size:.2f} MB"
-                
-                if img.format == 'GIF':
-                    frame_count = getattr(img, 'n_frames', 1)
-                    duration = img.info.get('duration', 100)
-                    fps = 1000 / duration if duration > 0 else 10
-                    info_text += f"\n{frame_count} frames @ {fps:.1f} FPS"
-                
-                info_label = ttk.Label(parent, text=info_text, style="Caption.TLabel")
-                info_label.pack()
-                
+            display_img = _first_frame_rgb(image_path)
+            original_size = display_img.size
+            display_img.thumbnail((300, 200), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(display_img)
+            img_label = ttk.Label(parent, image=photo)
+            img_label.image = photo  # keep a reference for tkinter
+            img_label.pack(pady=10)
+
+            file_size = image_path.stat().st_size / (1024 * 1024)
+            info_text = f"{original_size[0]}x{original_size[1]} px\n{file_size:.2f} MB"
+            if image_path.suffix.lower() == '.gif':
+                timing = read_timing(image_path)
+                fps = timing.frames * 1000 / max(1, timing.duration_ms)
+                info_text += f"\n{timing.frames} frames @ {fps:.1f} FPS"
+            ttk.Label(parent, text=info_text, style="Caption.TLabel").pack()
+
         except Exception as e:
             error_label = ttk.Label(parent, text=f"Error cargando imagen:\n{e}", 
                                    style="Danger.TLabel")
@@ -754,21 +734,16 @@ class QualityReportSystem:
                               style="Primary.TButton")
         close_btn.pack(side="right")
         
-        # Botón procesar siguiente (si hay más archivos)
-        continue_btn = ttk.Button(button_frame, text="➡️ Continuar Procesamiento", 
-                                 command=window.destroy,
-                                 style="Success.TButton")
-        continue_btn.pack(side="right", padx=(0, 10))
     
     def _export_report(self, report: dict):
         """Exportar reporte a archivo"""
         try:
             # Crear archivo de texto con el reporte
             timestamp = report["timestamp"].strftime("%Y%m%d_%H%M%S")
-            filename = f"quality_report_{timestamp}.txt"
+            filename = Path(report["processed_file"]).parent / f"quality_report_{timestamp}.txt"
             
             with open(filename, 'w', encoding='utf-8') as f:
-                f.write("🎮 WORKSHOPART PRO - REPORTE DE CALIDAD\n")
+                f.write("WORKSHOPART - REPORTE DE CALIDAD\n")
                 f.write("=" * 50 + "\n\n")
                 
                 f.write(f"📅 Fecha: {report['timestamp'].strftime('%d/%m/%Y %H:%M:%S')}\n")
@@ -782,7 +757,6 @@ class QualityReportSystem:
                 
                 original = report["original_metrics"]
                 processed = report["processed_metrics"]
-                improvements = report["improvements"]
                 
                 metrics_data = [
                     ("Resolución", original.get('resolution', (0,0)), processed.get('resolution', (0,0))),
@@ -805,6 +779,46 @@ class QualityReportSystem:
                     f.write("\n")
             
             logger.info("Reporte exportado: %s", filename)
+            messagebox.showinfo("Quality Report", f"Reporte guardado en:\n{filename}")
             
         except Exception as e:
             logger.error("Error exportando reporte: %s", e)
+            messagebox.showerror("Quality Report", f"No se pudo exportar el reporte:\n{e}")
+
+    def _apply_styles(self, window) -> None:
+        """Dark ttk styles for the report window (it is plain tk/ttk, not CustomTkinter)."""
+        bg, panel = self.theme["bg_primary"], self.theme["bg_secondary"]
+        fg, muted = self.theme["text_primary"], self.theme["text_secondary"]
+        style = ttk.Style(window)
+        style.theme_use("clam")
+        for name in ("Modern.TFrame", "Header.TFrame", "TFrame"):
+            style.configure(name, background=bg)
+        style.configure("TLabel", background=bg, foreground=fg, font=("Segoe UI", 10))
+        style.configure("Title.TLabel", font=("Segoe UI", 16, "bold"), foreground=fg, background=bg)
+        style.configure("Caption.TLabel", foreground=muted, background=bg, font=("Segoe UI", 9))
+        style.configure("Body.TLabel", foreground=fg, background=bg)
+        style.configure("Accent.TLabel", foreground=self.theme["accent_primary"], background=bg)
+        style.configure("Success.TLabel", foreground=self.theme["accent_success"], background=bg)
+        style.configure("Warning.TLabel", foreground=self.theme["accent_warning"], background=bg)
+        style.configure("Danger.TLabel", foreground=self.theme["accent_danger"], background=bg)
+        style.configure("Modern.TLabelframe", background=bg, foreground=fg)
+        style.configure("Modern.TLabelframe.Label", background=bg, foreground=fg)
+        style.configure("Modern.TNotebook", background=bg, borderwidth=0)
+        style.configure("TNotebook.Tab", background=panel, foreground=fg, padding=(10, 4))
+        style.map("TNotebook.Tab", background=[("selected", self.theme["bg_tertiary"])])
+        style.configure("Treeview", background=panel, fieldbackground=panel, foreground=fg)
+        style.configure("Treeview.Heading", background=self.theme["bg_tertiary"], foreground=fg)
+        for name in ("Primary.TButton", "Secondary.TButton"):
+            style.configure(name, background=self.theme["bg_tertiary"], foreground=fg)
+
+
+def _first_frame_rgb(path: Path) -> Image.Image:
+    """First frame of a GIF (Steam-patched or not), video or image, as RGB."""
+    path = Path(path)
+    if path.suffix.lower() == ".gif":
+        with open_gif(path) as img:
+            return img.convert("RGB")
+    if is_video(path):
+        return first_frame(path)
+    with Image.open(path) as img:
+        return img.convert("RGB")

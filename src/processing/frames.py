@@ -1,304 +1,183 @@
 """processing.frames - frame extraction and AI upscaling (Real-ESRGAN / Real-CUGAN)."""
 import subprocess
+import threading
+import time
 from pathlib import Path
-from typing import Optional, List, Tuple, Callable
+from typing import Callable, List, Optional, Tuple
 
-from PIL import Image, ImageSequence
-from tqdm import tqdm
+from PIL import Image
 
-from processing.common import _NO_WINDOW_FLAGS, logger
+from gif_utils import format_fps, playback_fps
+from processing.common import _NO_WINDOW_FLAGS, logger, run_tool, tail
+from video_utils import is_video, probe_video
+
+# Model table of the optional realesrgan-ncnn-py bindings (package model ids).
+# Other models (realesrnet, general-v3, CUGAN, user models) use the CLI.
+_BINDING_MODEL_IDS = {
+    "realesr-animevideov3-x2": 0,
+    "realesr-animevideov3-x3": 1,
+    "realesr-animevideov3-x4": 2,
+    "realesrgan-x4plus-anime": 3,
+    "realesrgan-x4plus": 4,
+}
 
 
 class FramesMixin:
-    def extract_gif_frames(self, gif_path: Path, output_dir: Path) -> Tuple[Optional[List[Path]], Optional[int]]:
-        """Extract all GIF frames as RGB PNGs into output_dir.
-        Returns (list_of_frame_paths, avg_frame_duration_ms), or (None, None) on failure."""
+    def extract_gif_frames(self, source: Path, output_dir: Path, max_fps: float = 50.0,
+                           max_width: Optional[int] = None
+                           ) -> Tuple[Optional[List[Path]], Optional[float]]:
+        """Extract the frames of a GIF (or video) as PNGs at a constant rate.
+
+        The rate reproduces the source speed (see gif_utils.playback_fps), so
+        re-encoding the frames at the returned fps keeps the original timing.
+        ``max_width`` shrinks wider sources (aspect ratio kept).
+        Returns (sorted frame paths, fps) or (None, None) on failure.
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
         try:
-            output_dir.mkdir(exist_ok=True)
-
-            with Image.open(gif_path) as gif:
-                frames = []
-                durations = []
-
-                for i, frame in enumerate(ImageSequence.Iterator(gif)):
-                    frame_rgb = frame.copy().convert("RGB")
-                    frame_path = output_dir / f"frame_{i:06d}.png"
-                    frame_rgb.save(frame_path, "PNG")
-                    frames.append(frame_path)
-
-                    duration = gif.info.get('duration', 100)  # milliseconds per frame
-                    durations.append(duration)
-
-                avg_duration = sum(durations) / len(durations) if durations else 100
-                return frames, int(avg_duration)
-        except Exception as e:
-            logger.error(f"Error extrayendo frames: {e}")
+            if is_video(source):
+                fps = probe_video(source).fps or 24.0
+            else:
+                fps = playback_fps(source)
+        except (OSError, ValueError) as e:
+            logger.error("No se pudo leer %s: %s", source.name, e)
             return None, None
-    
-    def extract_video_frames(self, video_path: Path, output_dir: Path) -> Optional[float]:
-        """Extract all video frames as RGB PNGs using moviepy. Returns the source FPS, or None on failure."""
-        try:
-            output_dir.mkdir(exist_ok=True)
-            try:
-                from moviepy import VideoFileClip  # moviepy >= 2.0
-            except ImportError:
-                from moviepy.editor import VideoFileClip  # moviepy 1.x
+        fps = min(fps, max_fps)
+        filters = f"fps={format_fps(fps)}"
+        if max_width:
+            filters += f",scale='min(iw,{int(max_width)})':-2:flags=lanczos"
+        result = run_tool([self.ffmpeg_path, "-hide_banner", "-y", "-i", source,
+                           "-vf", filters, output_dir / "frame_%06d.png"], timeout=900)
+        frames = sorted(output_dir.glob("frame_*.png"))
+        if result.returncode != 0 or not frames:
+            logger.error("Error extrayendo frames: %s", tail(result.stderr))
+            return None, None
+        return frames, fps
 
-            with VideoFileClip(str(video_path)) as clip:
-                fps = clip.fps
-                total_frames = int(clip.fps * clip.duration)
-                
-                for i, frame in enumerate(tqdm(clip.iter_frames(), total=total_frames, desc="Extrayendo frames")):
-                    frame_path = output_dir / f"frame_{i:06d}.png"
-                    Image.fromarray(frame).save(frame_path, "PNG")
-                
-                return fps
-        except Exception as e:
-            logger.error(f"Error extrayendo frames del video: {e}")
-            return None
-    
     def upscale_frames_batch(self, input_dir: Path, output_dir: Path,
-                           model_name: str = "realesrgan-x4plus",
-                           use_gpu: bool = True,
-                           progress_callback: Optional[Callable] = None) -> Optional[List[Path]]:
-        """Upscale all PNG frames in input_dir using Real-ESRGAN or Real-CUGAN.
-        Tries Python bindings first (faster, no subprocess), then falls back to the CLI binary.
-        Retries with CPU if the GPU device is invalid. Returns sorted list of output paths or None."""
-        output_dir.mkdir(exist_ok=True)
+                             model_name: str = "realesrgan-x4plus",
+                             use_gpu: bool = True,
+                             progress_callback: Optional[Callable] = None) -> Optional[List[Path]]:
+        """Upscale every PNG in input_dir with Real-ESRGAN or Real-CUGAN.
 
-        # Verificar que hay frames de entrada
-        input_frames = list(input_dir.glob("*.png"))
+        Uses the realesrgan-ncnn-py bindings when installed and the model is
+        one of theirs, otherwise the ncnn-vulkan command-line tool. A GPU
+        failure is retried once on the CPU. Returns the sorted output frames.
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+        input_frames = sorted(input_dir.glob("*.png"))
         if not input_frames:
-            if progress_callback:
-                progress_callback("Error: No hay frames de entrada", 0)
+            _progress(progress_callback, "Error: no hay frames de entrada", 0)
             return None
 
-        # Strip any human-readable description appended by the UI (e.g. "realesrgan-x4plus - Anime")
-        clean_model_name = model_name.split(" - ")[0].split(" ")[0]
+        # The UI may pass "model_id - description"; keep the id only.
+        model = model_name.split(" - ")[0].strip()
+        info = self.model_manager.get_model_info(model)
+        engine = info.get("engine", "realesrgan")
 
-        model_info = self.model_manager.get_model_info(clean_model_name)
-        engine = model_info.get("engine", "realesrgan")
-
-        gpu_id = "0" if use_gpu else "-1"  # ncnn uses -1 to force CPU
-
-        # --- Fast path: Python bindings (realesrgan-ncnn-py, PRO) ---
-        if engine != "realcugan":
-            try:
-                from realesrgan_ncnn_py import Realesrgan as _RealESRGAN
-                _MODEL_IDS = {
-                    "realesr-animevideov3-x4": 0, "realesr-animevideov3-x3": 0,
-                    "realesr-animevideov3-x2": 0, "realesrgan-x4plus": 1,
-                    "realesrgan-x4plus-anime": 2, "realesrnet-x4plus": 3,
-                    "realesr-general-x4v3": 0,
-                }
-                _model_id = _MODEL_IDS.get(clean_model_name, 0)
-                _gpu_id = 0 if use_gpu else -1
-                _upscaler = _RealESRGAN(gpuid=_gpu_id, model=_model_id)
-                upscaled: List[Path] = []
-                total = len(input_frames)
-                for i, fp in enumerate(sorted(input_frames)):
-                    with Image.open(fp) as _img:
-                        result = _upscaler.process_pil(_img)
-                    out_fp = output_dir / fp.name
-                    result.save(out_fp)
-                    upscaled.append(out_fp)
-                    if progress_callback:
-                        progress_callback(
-                            f"Upscaling frame {i+1}/{total} (bindings)",
-                            int((i + 1) / total * 80)
-                        )
-                logger.info(f"upscale via Python bindings: {len(upscaled)} frames")
-                return upscaled or None
-            except ImportError:
-                pass  # bindings not installed; fall through to subprocess
-            except Exception as e:
-                logger.warning(f"realesrgan-ncnn-py falló ({e}), usando subprocess")
+        if engine == "realesrgan" and model in _BINDING_MODEL_IDS:
+            upscaled = self._upscale_with_bindings(input_frames, output_dir, model,
+                                                   use_gpu, progress_callback)
+            if upscaled:
+                return upscaled
 
         if engine == "realcugan":
-            # --- Real-CUGAN ---
-            exe_path = self.realcugan_path
-            if not exe_path or not exe_path.exists():
-                if progress_callback:
-                    progress_callback("Error: Real-CUGAN no encontrado", 0)
-                return None
-
-            cugan_args = model_info.get("cugan_args", {})
-            scale = str(cugan_args.get("scale", 2))
-            noise = str(cugan_args.get("noise", 0))
-            model_dir = cugan_args.get("model_dir", "models-se")
-
-            models_path = exe_path.parent / model_dir  # model dir must be relative to the binary
-
-            cmd = [
-                str(exe_path),
-                "-i", str(input_dir),
-                "-o", str(output_dir),
-                "-s", scale,       # upscale factor
-                "-n", noise,       # denoising level (0 = off)
-                "-m", str(models_path),
-                "-f", "png",
-                "-g", gpu_id,
-            ]
-            working_dir = exe_path.parent
-            logger.info(f"CUGAN: scale={scale} noise={noise} models={model_dir}")
+            exe = self.realcugan_path
+            cugan = info.get("cugan_args", {})
+            args = ["-s", str(cugan.get("scale", 2)), "-n", str(cugan.get("noise", 0)),
+                    "-m", self.model_manager.cugan_models_dir(cugan.get("model_dir", "models-se"))]
         else:
-            # --- Real-ESRGAN ---
-            exe_path = self.realesrgan_path
-            if not exe_path or not exe_path.exists():
-                if progress_callback:
-                    progress_callback("Error: Real-ESRGAN no encontrado", 0)
-                return None
-
-            cmd = [
-                str(exe_path),
-                "-i", str(input_dir),
-                "-o", str(output_dir),
-                "-n", clean_model_name,  # model name without extension (.bin/.param)
-                "-s", "4",               # fixed 4x upscale for Real-ESRGAN models
-                "-f", "png",
-                "-g", gpu_id,
-            ]
-            working_dir = exe_path.parent  # ncnn loads model files relative to cwd
-        try:
-            if progress_callback:
-                mode = "GPU" if use_gpu else "CPU"
-                progress_callback(f"🚀 Iniciando procesamiento con {mode}...", 20)
-            
-            logger.info(f"🔧 Ejecutando: {' '.join(cmd)}")
-            logger.info(f"📂 Entrada: {input_dir} ({len(input_frames)} frames)")
-            logger.info(f"📁 Salida: {output_dir}")
-            logger.info(f"🎯 Modelo: {clean_model_name}")
-            logger.info(f"⚡ Modo: {'GPU' if use_gpu else 'CPU'}")
-            
-            # Ejecutar con manejo de salida mejorado
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                cwd=str(working_dir),**_NO_WINDOW_FLAGS
-            )
-
-            # Watcher: cuenta PNGs producidos en output_dir y reporta progreso
-            # en vivo, así el usuario ve avance en vez de quedarse mirando 0.
-            import threading as _th, time as _time
-            total_in = len(input_frames)
-            stop_watch = _th.Event()
-            start_ts = _time.time()
-
-            def _watch():
-                last_done = -1
-                while not stop_watch.is_set():
-                    try:
-                        done = sum(1 for _ in output_dir.glob("*.png"))
-                    except Exception:
-                        done = last_done
-                    if done != last_done:
-                        last_done = done
-                        elapsed = _time.time() - start_ts
-                        rate = done / elapsed if elapsed > 0 else 0
-                        eta = ((total_in - done) / rate) if rate > 0.01 else 0
-                        pct_inner = int((done / total_in) * 100) if total_in else 0
-                        # Mapear a rango 20-80 del progreso global
-                        pct = 20 + int((done / total_in) * 60) if total_in else 20
-                        msg = (f"🤖 IA: {done}/{total_in} frames "
-                               f"({pct_inner}%, {rate:.2f} f/s, ETA {int(eta)}s)")
-                        if progress_callback:
-                            try:
-                                progress_callback(msg, pct)
-                            except Exception:
-                                pass
-                    stop_watch.wait(2.0)
-
-            watcher = _th.Thread(target=_watch, daemon=True)
-            watcher.start()
-
-            # Dynamic timeout: 5 min base + 5 s/frame, minimum 10 min (1300 frames ≈ 2 h)
-            dyn_timeout = max(600, 300 + 5 * total_in)
-            try:
-                stdout, stderr = process.communicate(timeout=dyn_timeout)
-                return_code = process.returncode
-            except subprocess.TimeoutExpired:
-                process.kill()
-                stop_watch.set()
-                if progress_callback:
-                    progress_callback(
-                        f"❌ Timeout tras {dyn_timeout}s en IA", 0)
-                logger.error(f"❌ Timeout: IA tardó más de {dyn_timeout}s")
-                return None
-            finally:
-                stop_watch.set()
-            
-            logger.info(f"📊 Código de salida: {return_code}")
-            if stdout:
-                logger.info(f"📄 Salida: {stdout[:200]}...")
-            if stderr:
-                logger.error(f"⚠️ Errores: {stderr[:400]}...")
-            
-            if return_code == 0:
-                # Verificar archivos de salida
-                upscaled_frames = sorted(list(output_dir.glob("*.png")))
-                
-                if upscaled_frames:
-                    if progress_callback:
-                        progress_callback(f"✅ Procesamiento completado: {len(upscaled_frames)} frames", 80)
-                    logger.info(f"✅ Éxito: {len(upscaled_frames)} frames procesados")
-                    return upscaled_frames
-                else:
-                    if progress_callback:
-                        progress_callback("❌ Error: No se generaron frames de salida", 0)
-                    logger.error("❌ Error: No se generaron archivos de salida")
-                    return None
-            else:
-                # CORRECCIÓN CRÍTICA 3: Mejor manejo de errores GPU
-                if use_gpu and "invalid gpu device" in stderr:
-                    if progress_callback:
-                        progress_callback("⚠️ GPU no válida, reintentando con CPU...", 60)
-                    logger.warning("⚠️ GPU no válida, reintentando con CPU...")
-                    return self.upscale_frames_batch(
-                        input_dir, output_dir, clean_model_name,  # Usar nombre limpio
-                        use_gpu=False, progress_callback=progress_callback
-                    )
-                elif use_gpu and return_code != 0:
-                    if progress_callback:
-                        progress_callback("⚠️ Error con GPU, reintentando con CPU...", 60)
-                    logger.error("⚠️ Error con GPU, reintentando con CPU...")
-                    return self.upscale_frames_batch(
-                        input_dir, output_dir, clean_model_name,  # Usar nombre limpio
-                        use_gpu=False, progress_callback=progress_callback
-                    )
-                else:
-                    if progress_callback:
-                        progress_callback(f"❌ Error en procesamiento (código {return_code})", 0)
-                    logger.error(f"❌ Error: código {return_code}")
-                    logger.info(f"stderr: {stderr}")
-                    
-                    # DIAGNÓSTICO ADICIONAL
-                    if "failed" in stderr and "param" in stderr:
-                        logger.error("Diagnostico: Error de modelo")
-                        logger.info(f"   Modelo buscado: {clean_model_name}")
-                        models_dir = self.model_manager.models_dir
-                        available = [f.stem for f in models_dir.glob("*.bin")]
-                        logger.info(f"   Modelos disponibles: {available}")
-                        
-                        # Intentar con primer modelo disponible
-                        if available:
-                            alternative = available[0]
-                            logger.info(f"   🔄 Reintentando con modelo: {alternative}")
-                            return self.upscale_frames_batch(
-                                input_dir, output_dir, alternative,
-                                use_gpu=use_gpu, progress_callback=progress_callback
-                            )
-                    
-                    return None
-                
-        except Exception as e:
-            if progress_callback:
-                progress_callback(f"❌ Error: {e}", 0)
-            logger.error(f"❌ Excepción: {e}")
+            exe = self.realesrgan_path
+            # -s must match the model's native scale: an x2 model run with -s 4
+            # produces a scrambled image.
+            args = ["-n", model, "-s", str(self.model_manager.model_scale(model)),
+                    "-m", self.model_manager.models_dir]
+        if not exe or not Path(exe).exists():
+            tool = "Real-CUGAN" if engine == "realcugan" else "Real-ESRGAN"
+            _progress(progress_callback, f"Error: {tool} no encontrado", 0)
             return None
-        
-        
-    
-    
+        cmd = [exe, *args, "-i", input_dir, "-o", output_dir, "-f", "png",
+               "-g", "0" if use_gpu else "-1"]
 
+        ok, stderr = self._run_upscaler(cmd, len(input_frames), output_dir, use_gpu,
+                                        progress_callback)
+        upscaled = sorted(output_dir.glob("*.png"))
+        if ok and upscaled:
+            _progress(progress_callback, f"IA completada: {len(upscaled)} frames", 80)
+            return upscaled
+        if use_gpu:
+            logger.warning("Fallo con GPU (%s), reintentando con CPU", tail(stderr, 200))
+            _progress(progress_callback, "Error con la GPU, reintentando con CPU...", 20)
+            for leftover in upscaled:
+                leftover.unlink(missing_ok=True)
+            return self.upscale_frames_batch(input_dir, output_dir, model, use_gpu=False,
+                                             progress_callback=progress_callback)
+        _progress(progress_callback, f"Error en el procesamiento con IA: {tail(stderr, 200)}", 0)
+        return None
+
+    def _upscale_with_bindings(self, frames, output_dir, model, use_gpu, progress_callback):
+        try:
+            from realesrgan_ncnn_py import Realesrgan
+        except ImportError:
+            return None  # optional dependency
+        try:
+            upscaler = Realesrgan(gpuid=0 if use_gpu else -1, model=_BINDING_MODEL_IDS[model])
+            out = []
+            for index, frame in enumerate(frames, 1):
+                with Image.open(frame) as image:
+                    upscaler.process_pil(image).save(output_dir / frame.name)
+                out.append(output_dir / frame.name)
+                _progress(progress_callback, f"IA: frame {index}/{len(frames)}",
+                          20 + int(index / len(frames) * 60))
+            logger.info("Upscale con realesrgan-ncnn-py: %d frames", len(out))
+            return out
+        except Exception as e:  # bindings failure: fall back to the CLI
+            logger.warning("realesrgan-ncnn-py fallo (%s), usando el ejecutable", e)
+            return None
+
+    def _run_upscaler(self, cmd, total, output_dir, use_gpu, progress_callback):
+        """Run an ncnn-vulkan upscaler, reporting progress by counting output files."""
+        mode = "GPU" if use_gpu else "CPU"
+        _progress(progress_callback, f"Iniciando IA con {mode}...", 20)
+        logger.info("Ejecutando: %s", " ".join(str(c) for c in cmd))
+        process = subprocess.Popen([str(c) for c in cmd], stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True, encoding="utf-8",
+                                   errors="replace", cwd=str(Path(cmd[0]).parent),
+                                   **_NO_WINDOW_FLAGS)
+        stop = threading.Event()
+        started = time.time()
+
+        def watch():
+            last = -1
+            while not stop.wait(2.0):
+                done = sum(1 for _ in output_dir.glob("*.png"))
+                if done != last:
+                    last = done
+                    rate = done / max(0.001, time.time() - started)
+                    eta = int((total - done) / rate) if rate > 0.01 else 0
+                    _progress(progress_callback,
+                              f"IA: {done}/{total} frames ({rate:.2f} f/s, ETA {eta}s)",
+                              20 + int(done / max(1, total) * 60))
+
+        watcher = threading.Thread(target=watch, daemon=True)
+        watcher.start()
+        # Generous timeout: 10 min base + 5 s per frame (CPU mode is slow).
+        timeout = max(600, 300 + 5 * total)
+        try:
+            _, stderr = process.communicate(timeout=timeout)
+            return process.returncode == 0, stderr or ""
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            return False, f"timeout tras {timeout} s"
+        finally:
+            stop.set()
+
+
+def _progress(callback, message: str, percent: float) -> None:
+    logger.info(message)
+    if callback:
+        try:
+            callback(message, percent)
+        except Exception:  # never let a UI callback break the upscale
+            pass

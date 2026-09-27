@@ -1,8 +1,7 @@
 """ui.logic - business logic for the WorkshopArt GUI, split by domain.
 
-GUIMethodsMixin is assembled here from the domain mixins. The PRO feature
-patch (_pro_features, gitignored in the public repo) replaces the free-tier
-stub methods when present - same behaviour as the old gui_methods.py.
+GUIMethodsMixin is assembled here from the domain mixins; ui.app mixes it into
+the main window.
 """
 from ui.logic.files import FilesMixin
 from ui.logic.fragmentation import FragmentationMixin
@@ -19,21 +18,5 @@ class GUIMethodsMixin(SystemMixin, FilesMixin, ProcessingMixin,
     `self.update_queue`, and the widget attributes documented in each mixin.
     """
 
-
-# PRO feature patch: _pro_features.py is gitignored and absent in the public
-# repo; the ImportError branch is the normal code path for public-repo users.
-try:
-    import _pro_features as _pf
-
-    GUIMethodsMixin.process_full_ai = _pf.process_full_ai
-    GUIMethodsMixin._fragment_workshop_flow = _pf.fragment_workshop_flow
-    GUIMethodsMixin.enhance_animation = _pf.enhance_animation
-    # Newer PRO features: patch only when the installed _pro_features has them.
-    for _method in ("run_full_pipeline", "validate_steam_profile",
-                    "export_steam_pack"):
-        if hasattr(_pf, _method):
-            setattr(GUIMethodsMixin, _method, getattr(_pf, _method))
-except ImportError:
-    pass
 
 __all__ = ["GUIMethodsMixin"]

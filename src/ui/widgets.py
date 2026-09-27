@@ -8,6 +8,7 @@ from typing import Callable, Optional, Sequence
 import customtkinter as ctk
 import tkinter as tk
 
+from i18n import t
 from ui import theme
 from ui.theme import Colors, Spacing
 
@@ -96,11 +97,6 @@ class Stepper(ctk.CTkFrame):
             self._buttons.append(btn)
         self._paint()
 
-    def set_titles(self, titles: Sequence[str]) -> None:
-        """Re-apply (translated) titles without rebuilding the bar."""
-        for index, title in enumerate(titles):
-            self._buttons[index].configure(text=f"{index + 1} · {title}")
-
     def set_enabled(self, index: int, enabled: bool) -> None:
         """Enable or disable one step button."""
         if self._enabled[index] == enabled:
@@ -116,11 +112,6 @@ class Stepper(ctk.CTkFrame):
         self._active = index
         self._paint()
         self._on_select(index)
-
-    @property
-    def active(self) -> int:
-        """Index of the currently active step."""
-        return self._active
 
     def _paint(self) -> None:
         for index, btn in enumerate(self._buttons):
@@ -242,7 +233,7 @@ class StatusBar(ctk.CTkFrame):
         self.status_label.pack(side="left")
 
         self.cancel_btn = ctk.CTkButton(
-            self, text="Cancelar", command=on_cancel,
+            self, text=t("cancel_btn", fallback="Cancelar"), command=on_cancel,
             fg_color=Colors.DANGER, hover_color=darken(Colors.DANGER),
             height=26, width=110, corner_radius=6, font=theme.font("CAPTION"))
         self.cancel_btn.pack(side="right", padx=Spacing.MD, pady=8)
@@ -253,7 +244,8 @@ class StatusBar(ctk.CTkFrame):
         indicators.pack(side="right", padx=Spacing.MD)
         self.gpu_status_label = self._indicator(indicators, "GPU: ...")
         self.ffmpeg_status_label = self._indicator(indicators, "FFmpeg: ...")
-        self.models_status_label = self._indicator(indicators, "Modelos: ...")
+        self.models_status_label = self._indicator(
+            indicators, t("models_label", fallback="Modelos") + ": ...")
 
     @staticmethod
     def _indicator(parent, text: str) -> ctk.CTkLabel:

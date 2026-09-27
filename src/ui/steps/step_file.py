@@ -23,12 +23,12 @@ class FileStep(ctk.CTkFrame):
                             border_width=2, border_color=Colors.BORDER)
         drop.pack(fill="x", padx=Spacing.LG, pady=(Spacing.LG, Spacing.MD))
 
-        ctk.CTkLabel(drop, text=t("drop_here", fallback="Arrastra tu archivo aqui"),
+        ctk.CTkLabel(drop, text=t("drop_here", fallback="Arrastra tu archivo aquí"),
                      font=theme.font("HEADING"),
                      text_color=Colors.TEXT_SECONDARY).pack(pady=(Spacing.LG, Spacing.XS))
         ctk.CTkLabel(drop,
                      text=t("supported_formats",
-                            fallback="MP4 · AVI · MOV · MKV · WEBM · GIF · JPG · PNG · WEBP"),
+                            fallback="GIF · MP4 · MOV · MKV · WEBM · AVI · JPG · PNG · WEBP"),
                      font=theme.font("CAPTION"),
                      text_color=Colors.TEXT_MUTED).pack()
 

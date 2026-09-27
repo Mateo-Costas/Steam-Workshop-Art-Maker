@@ -1,529 +1,238 @@
-"""processing.gif_encode - GIF assembly, gifsicle/trailer post-processing, video->GIF."""
+"""processing.gif_encode - video->GIF, frames->GIF, gifsicle and the Steam trailer patch."""
 import os
-import shutil
-import platform
-import subprocess
+import tempfile
+import zipfile
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional, Sequence, Tuple
 
-from PIL import Image, ImageSequence
+from app_paths import DATA_DIR
+from gif_utils import MAX_GIF_FPS, format_fps
+from processing.common import logger, run_tool, tail
 
-from processing.common import _NO_WINDOW_FLAGS, logger
+# Two-pass palette: build one palette for the whole clip, then dither with it.
+# sierra2_4a is the best-looking error diffusion for gradients in animation.
+_PALETTE_FILTER = ("split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];"
+                   "[b][p]paletteuse=dither=sierra2_4a")
+
+_GIFSICLE_URLS = (
+    "https://eternallybored.org/misc/gifsicle/releases/gifsicle-1.95-win64.zip",
+    "https://eternallybored.org/misc/gifsicle/releases/gifsicle-1.94-win64.zip",
+)
+
+
+def scale_filter(size: Optional[Tuple[int, int]] = None, max_width: Optional[int] = None) -> str:
+    """ffmpeg scale expression that never distorts the image.
+
+    size       -> cover (fill) and center-crop to exactly WxH.
+    max_width  -> keep the aspect ratio, shrink to that width if wider.
+    """
+    if size:
+        w, h = size
+        return (f"scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,"
+                f"crop={w}:{h}")
+    if max_width:
+        return f"scale='min(iw,{int(max_width)})':-2:flags=lanczos"
+    return ""  # keep the original size
 
 
 class GifEncodeMixin:
-    def create_optimized_gif(self, frame_paths: List[Path], output_path: Path, fps: int) -> bool:
-        """Assemble a GIF from a list of frame paths at the configured Steam profile resolution.
-        Tries up to three PIL save configurations, then falls back to FFmpeg. Returns True on success."""
-        try:
-            # CORRECCIÓN 1: Validación exhaustiva de entrada
-            logger.info(f"🔍 create_optimized_gif iniciado:")
-            logger.info(f"  - frame_paths: {len(frame_paths) if frame_paths else 0} frames")
-            logger.info(f"  - output_path: {output_path}")
-            logger.info(f"  - fps: {fps}")
-            logger.info(f"  - CWD: {Path.cwd()}")
-            
-            if not frame_paths:
-                logger.error("❌ Error: Lista de frames vacía")
-                return False
-            
-            # CORRECCIÓN 2: Verificar que los frames existen
-            valid_frames = []
-            for i, frame_path in enumerate(frame_paths):
-                if not isinstance(frame_path, Path):
-                    logger.error(f"❌ Frame {i} no es Path válido: {type(frame_path)}")
-                    continue
-                
-                if not frame_path.exists():
-                    logger.error(f"❌ Frame {i} no existe: {frame_path}")
-                    continue
-                
-                try:
-                    # Verificar que se puede abrir
-                    with Image.open(frame_path) as test_img:
-                        if test_img.size[0] < 10 or test_img.size[1] < 10:
-                            logger.error(f"❌ Frame {i} muy pequeño: {test_img.size}")
-                            continue
-                    valid_frames.append(frame_path)
-                except Exception as e:
-                    logger.error(f"❌ Frame {i} corrupto: {e}")
-                    continue
-            
-            if not valid_frames:
-                logger.error("❌ Error: No hay frames válidos")
-                return False
-            
-            logger.info(f"✅ Frames válidos: {len(valid_frames)}/{len(frame_paths)}")
-            
-            target_size = (self.config.get('steam_profile.width'), self.config.get('steam_profile.height'))
-            duration = max(50, min(500, int(1000 / fps)))  # clamp to 50–500 ms; avoids <50 ms flicker
-            max_frames = min(len(valid_frames), 500)  # cap to avoid OOM on very long GIFs
-            
-            logger.info(f"📊 Configuración:")
-            logger.info(f"  - Target size: {target_size}")
-            logger.info(f"  - Duration: {duration}ms")
-            logger.info(f"  - Max frames: {max_frames}")
-            
-            # CORRECCIÓN 4: Procesar frames con manejo de memoria
-            frames = []
-            processed_count = 0
-            
-            try:
-                for i in range(max_frames):
-                    frame_path = valid_frames[i]
-                    
-                    try:
-                        # Cargar frame
-                        with Image.open(frame_path) as img:
-                            # Convertir a RGB
-                            if img.mode != 'RGB':
-                                if img.mode == 'RGBA':
-                                    # Composite RGBA over white; GIF has no real alpha channel
-                                    rgb_img = Image.new('RGB', img.size, (255, 255, 255))
-                                    rgb_img.paste(img, mask=img.split()[-1])  # split()[-1] is the alpha channel
-                                    frame = rgb_img
-                                else:
-                                    frame = img.convert('RGB')
-                            else:
-                                frame = img.copy()
-                            
-                            # Redimensionar si es necesario
-                            if frame.size != target_size:
-                                frame = frame.resize(target_size, Image.Resampling.LANCZOS)
-                            
-                            # Agregar a lista
-                            frames.append(frame)
-                            processed_count += 1
-                            
-                            # Log progreso cada 50 frames
-                            if processed_count % 50 == 0:
-                                logger.info(f"  📊 Procesados: {processed_count}/{max_frames} frames")
-                    
-                    except Exception as frame_error:
-                        logger.error(f"⚠️ Error en frame {i}: {frame_error}")
-                        continue
-                    
-                    if processed_count % 100 == 0:
-                        import gc
-                        gc.collect()  # periodic collection prevents unbounded RAM growth on large GIFs
-                
-                if not frames:
-                    logger.error("❌ Error: No se cargaron frames")
-                    return False
-                
-                logger.info(f"✅ Frames cargados: {len(frames)}")
-                
-            except Exception as loading_error:
-                logger.error(f"❌ Error cargando frames: {loading_error}")
-                return False
-            
-            # CORRECCIÓN 6: Asegurar directorio de salida
-            try:
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                logger.info(f"✅ Directorio de salida verificado: {output_path.parent}")
-            except Exception as dir_error:
-                logger.error(f"❌ Error creando directorio: {dir_error}")
-                return False
-            
-            save_attempts = [
-                # Attempt 1: disposal=2 (clear to background) — cleanest for animated GIFs
-                {
-                    "optimize": False,  # skip PIL LZW optimiser; it can corrupt large GIFs
-                    "disposal": 2,
-                    "transparency": None,
-                    "background": None
-                },
-                # Attempt 2: disposal=0 (do not dispose) — some encoders need this
-                {
-                    "optimize": False,
-                    "disposal": 0,
-                },
-                # Attempt 3: bare minimum — let PIL use its defaults
-                {}
-            ]
-            
-            for attempt, save_params in enumerate(save_attempts, 1):
-                try:
-                    logger.info(f"💾 Intento {attempt} de guardado...")
-                    
-                    # Crear archivo temporal
-                    temp_path = output_path.with_suffix('.tmp.gif')
-                    
-                    # Guardar GIF
-                    frames[0].save(
-                        temp_path,
-                        save_all=True,
-                        append_images=frames[1:] if len(frames) > 1 else [],
-                        duration=duration,
-                        loop=0,
-                        **save_params
-                    )
-                    
-                    # Verificar que se creó correctamente
-                    if temp_path.exists():
-                        file_size = temp_path.stat().st_size
-                        
-                        if file_size > 1024:  # Al menos 1KB
-                            # Verificar que es un GIF válido
-                            try:
-                                with Image.open(temp_path) as test_gif:
-                                    if test_gif.format == 'GIF':
-                                        # ¡Éxito! Mover a ubicación final
-                                        if output_path.exists():
-                                            output_path.unlink()
-                                        
-                                        import shutil
-                                        shutil.move(temp_path, output_path)
-
-                                        # NO parchear aquí: el AI 4x es intermedio,
-                                        # el split/enhance posterior necesita Pillow.
-                                        final_size = output_path.stat().st_size / (1024 * 1024)
-                                        logger.info(f"✅ GIF creado exitosamente: {final_size:.2f} MB")
-                                        
-                                        # Liberar memoria
-                                        for frame in frames:
-                                            try:
-                                                frame.close()
-                                            except Exception:
-                                                pass
-                                        
-                                        import gc
-                                        gc.collect()
-
-                                        self._try_gifsicle_optimize(output_path)
-                                        return True
-                                    else:
-                                        logger.error(f"❌ Intento {attempt}: Archivo no es GIF válido")
-                            except Exception as validation_error:
-                                logger.error(f"❌ Intento {attempt}: Validación falló: {validation_error}")
-                        else:
-                            logger.error(f"❌ Intento {attempt}: Archivo muy pequeño ({file_size} bytes)")
-                        
-                        # Limpiar archivo temporal fallido
-                        if temp_path.exists():
-                            temp_path.unlink()
-                    else:
-                        logger.error(f"❌ Intento {attempt}: Archivo temporal no se creó")
-                    
-                except Exception as save_error:
-                    logger.error(f"❌ Intento {attempt} falló: {save_error}")
-                    
-                    # Limpiar archivo temporal si existe
-                    temp_path = output_path.with_suffix('.tmp.gif')
-                    if temp_path.exists():
-                        try:
-                            temp_path.unlink()
-                        except Exception:
-                            pass
-                    
-                    continue
-            
-            # CORRECCIÓN 8: Fallback con FFmpeg
-            logger.info("🔄 Todos los intentos PIL fallaron, probando FFmpeg...")
-            
-            if self.check_ffmpeg():
-                try:
-                    return self._create_gif_with_ffmpeg(valid_frames, output_path, fps)
-                except Exception as ffmpeg_error:
-                    logger.error(f"❌ FFmpeg también falló: {ffmpeg_error}")
-            else:
-                logger.error("❌ FFmpeg no disponible")
-            
-            # CORRECCIÓN 9: Limpieza final
-            logger.error("❌ Error: No se pudo crear GIF con ningún método")
-            
-            # Liberar memoria
-            try:
-                for frame in frames:
-                    try:
-                        frame.close()
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            
-            import gc
-            gc.collect()
-            
-            return False
-            
-        except Exception as critical_error:
-            logger.error(f"❌ Error crítico en create_optimized_gif: {critical_error}")
-            import traceback
-            traceback.print_exc()
-            return False
-
-    def _create_gif_with_ffmpeg(self, frame_paths: List[Path], output_path: Path, fps: int) -> bool:
-        """Fallback GIF encoder using FFmpeg's 2-pass palette pipeline (palettegen + paletteuse)."""
-        try:
-            if not self.check_ffmpeg():
-                logger.error("❌ FFmpeg no disponible")
-                return False
-            
-            # Usar el patrón de nombres de los frames
-            if frame_paths:
-                first_frame = frame_paths[0]
-                # Detectar el patrón del nombre
-                frame_pattern = first_frame.parent / "frame_%06d.png"
-                
-                width = self.config.get('steam_profile.width')
-                height = self.config.get('steam_profile.height')
-                
-                cmd = [
-                    str(self.ffmpeg_path),
-                    "-framerate", str(fps),
-                    "-i", str(frame_pattern),
-                    "-vf", (
-                        f"scale={width}:{height}:flags=lanczos,"         # resize with high-quality Lanczos
-                        f"split[s0][s1];"                                  # duplicate stream for 2-pass palette
-                        f"[s0]palettegen=max_colors=256:stats_mode=full[p];"  # pass 1: build full-clip palette
-                        f"[s1][p]paletteuse=dither=sierra2_4a"            # pass 2: apply sierra2_4a dither (best for gradients)
-                    ),
-                    "-y", str(output_path)
-                ]
-                
-                logger.info(f"🔧 Comando FFmpeg: {' '.join(cmd)}")
-                
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, **_NO_WINDOW_FLAGS)
-                
-                if result.returncode == 0 and output_path.exists():
-                    size_mb = output_path.stat().st_size / (1024 * 1024)
-                    logger.info(f"✅ GIF creado con FFmpeg: {size_mb:.2f} MB")
-                    self._patch_gif_trailer(output_path)
-                    self._try_gifsicle_optimize(output_path)
-                    return True
-                else:
-                    logger.error(f"❌ FFmpeg error: {result.stderr}")
-                    return False
-            else:
-                logger.error("❌ No hay frames para procesar")
-                return False
-            
-        except Exception as e:
-            logger.error(f"❌ Error con FFmpeg: {e}")
-            return False
-    
-    def _optimize_gif_size(self, gif_path: Path, max_size_mb: float):
-        """Reduce GIF palette depth to bring file size below max_size_mb, then run gifsicle for LZW recompression."""
-        current_size_mb = gif_path.stat().st_size / (1024 * 1024)
-        
-        if current_size_mb <= max_size_mb:
-            return
-        
-        try:
-            logger.info(f"🔧 Optimizando GIF de {current_size_mb:.2f} MB a {max_size_mb:.2f} MB...")
-            
-            # Reducir colores para reducir tamaño
-            with Image.open(gif_path) as img:
-                frames = list(ImageSequence.Iterator(img))
-                duration = img.info.get('duration', 100)
-                
-                # Scale color count proportionally to target size ratio; clamp to [32, 256]
-                reduction_factor = max_size_mb / current_size_mb
-                new_colors = int(256 * reduction_factor)
-                new_colors = max(32, min(256, new_colors))
-                
-                logger.info(f"🎨 Reduciendo a {new_colors} colores...")
-                
-                # Re-quantize each frame with an adaptive palette of new_colors entries
-                optimized_frames = []
-                for frame in frames:
-                    frame = frame.convert('RGB').convert('P', palette=Image.ADAPTIVE, colors=new_colors)
-                    optimized_frames.append(frame)
-                
-                # Guardar versión optimizada
-                temp_path = gif_path.with_suffix('.tmp.gif')
-                optimized_frames[0].save(
-                    temp_path,
-                    save_all=True,
-                    append_images=optimized_frames[1:],
-                    duration=duration,
-                    loop=0,
-                    optimize=False
-                )
-                
-                # Reemplazar si es más pequeño
-                if temp_path.stat().st_size < gif_path.stat().st_size:
-                    shutil.move(temp_path, gif_path)
-                    new_size = gif_path.stat().st_size / (1024 * 1024)
-                    logger.info(f"✅ GIF optimizado (colores): {new_size:.2f} MB")
-                else:
-                    temp_path.unlink()
-                    logger.warning("⚠️ La optimización no redujo el tamaño")
-
-            # Segundo pase con gifsicle (lossless LZW recompression)
-            self._try_gifsicle_optimize(gif_path)
-                    
-        except Exception as e:
-            logger.error(f"❌ Error optimizando tamaño: {e}")
-    
-    def _download_gifsicle(self) -> Optional[Path]:
-        """Auto-descarga gifsicle.exe para Windows si no está instalado."""
-        if platform.system() != "Windows":
-            found = shutil.which("gifsicle")
-            return Path(found) if found else None
-
-        dest = self.base_path / "SteamWorkshopAppData" / "gifsicle.exe"
-        if dest.exists():
-            self.gifsicle_path = dest
-            return dest
-
-        url = "https://github.com/kohler/gifsicle/releases/download/v1.94/gifsicle-1.94-win64.zip"
-        fallback_url = "https://eternallybored.org/misc/gifsicle/releases/gifsicle-1.94-win64.zip"
-        import zipfile, tempfile
-        for try_url in (url, fallback_url):
-            try:
-                import requests as _req
-                resp = _req.get(try_url, stream=True, timeout=30)
-                resp.raise_for_status()
-                # mkstemp instead of the race-prone deprecated mktemp
-                _fd, _tmp_name = tempfile.mkstemp(suffix=".zip")
-                tmp = Path(_tmp_name)
-                with os.fdopen(_fd, "wb") as f:
-                    for chunk in resp.iter_content(8192):
-                        if chunk:
-                            f.write(chunk)
-                with zipfile.ZipFile(tmp) as zf:
-                    for name in zf.namelist():
-                        if name.lower().endswith("gifsicle.exe"):
-                            dest.parent.mkdir(parents=True, exist_ok=True)
-                            with zf.open(name) as src, open(dest, "wb") as tgt:
-                                tgt.write(src.read())
-                            break
-                tmp.unlink(missing_ok=True)
-                if dest.exists():
-                    logger.info(f"gifsicle descargado: {dest}")
-                    self.gifsicle_path = dest
-                    return dest
-            except Exception as e:
-                logger.warning(f"gifsicle descarga fallida ({try_url}): {e}")
-        return None
-
-    def _try_gifsicle_optimize(self, gif_path: Path, lossy: int = 0) -> None:
-        """Run gifsicle --optimize=3 for lossless LZW recompression in-place.
-        lossy > 0 enables lossy compression (--lossy flag) for larger size reductions.
-        Only replaces the file if gifsicle produces a smaller result."""
-        exe = self.gifsicle_path
-        if not exe or not exe.exists():
-            exe = self._download_gifsicle()
-        if not exe:
-            return
-
-        out = gif_path.with_stem(gif_path.stem + "_gs")  # temporary output path
-        cmd = [str(exe), "--optimize=3", "-o", str(out), str(gif_path)]
-        if lossy > 0:
-            cmd.insert(1, f"--lossy={lossy}")  # lossy must come before --optimize
-        try:
-            result = subprocess.run(cmd, capture_output=True, timeout=120, **_NO_WINDOW_FLAGS)
-            if result.returncode == 0 and out.exists():
-                orig_size = gif_path.stat().st_size
-                new_size = out.stat().st_size
-                if new_size < orig_size:
-                    gif_path.unlink()
-                    out.rename(gif_path)
-                    saved_kb = (orig_size - new_size) / 1024
-                    logger.info(f"gifsicle: {orig_size/1048576:.2f} → {new_size/1048576:.2f} MB (−{saved_kb:.0f} KB)")
-                else:
-                    out.unlink()
-            elif out.exists():
-                out.unlink()
-        except Exception as e:
-            logger.warning(f"gifsicle optimization failed: {e}")
-            if out.exists():
-                out.unlink()
-
-
-    def _patch_gif_trailer(self, path: Path) -> bool:
-        """Replace trailing 0x3B with 0x21 so Steam renders full-size in showcase.
-        Returns True if patched, False if not needed or file invalid."""
-        if not self.patch_trailer_for_steam:
-            return False
-        try:
-            if not path or not path.exists():
-                return False
-            if path.stat().st_size < 1:
-                return False
-            with open(path, "r+b") as f:
-                f.seek(-1, os.SEEK_END)
-                last_byte = f.read(1)
-                if last_byte == b'\x3B':
-                    # 0x3B is the standard GIF89a trailer; Steam truncates display when it finds it.
-                    # Replacing with 0x21 (Extension Introducer) prevents premature termination.
-                    f.seek(-1, os.SEEK_END)
-                    f.write(b'\x21')
-                    logger.info(f"🩹 Trailer GIF parcheado para Steam: {path.name}")
-                    return True
-                if last_byte == b'\x21':
-                    return False  # already patched
-                return False
-        except (IOError, OSError) as e:
-            logger.warning(f"No se pudo parchear trailer de {path}: {e}")
-            return False
-
-    def _modify_gif_hex(self, file_path: Path):
-        self._patch_gif_trailer(file_path)
-    
-    def convert_video_to_gif(self, video_path: Path, output_path: Path, fps: int = 24,
-                             start_s: Optional[float] = None,
-                             end_s: Optional[float] = None) -> Optional[Path]:
-        """Convert any FFmpeg-readable video to a GIF at the configured Steam profile resolution.
-
-        Uses 2-pass palette (palettegen + paletteuse) for optimal color quality.
+    # ------------------------------------------------------------------
+    # Video -> GIF
+    # ------------------------------------------------------------------
+    def convert_video_to_gif(self, video_path: Path, output_path: Path, fps: float = 24,
+                             start_s: Optional[float] = None, end_s: Optional[float] = None,
+                             size: Optional[Tuple[int, int]] = None,
+                             max_width: Optional[int] = None) -> Optional[Path]:
+        """Convert any FFmpeg-readable video (or image) to an animated GIF.
 
         Args:
-            video_path: Source video file.
-            output_path: Destination .gif path.
-            fps: Target frame rate.
-            start_s: Optional trim start in seconds (accurate seek, after -i).
-            end_s: Optional trim end in seconds.
+            fps: output frame rate (capped at 50, the GIF maximum).
+            start_s / end_s: optional trim in seconds.
+            size: (w, h) to fill-and-crop to exactly; otherwise the aspect
+                ratio is kept and the width limited to ``max_width``
+                (default: the Steam profile width from config).
 
-        Returns:
-            The output path, or None on failure.
+        Returns the output path, or None on failure (details in the log).
         """
         if not self.check_ffmpeg():
-            logger.error("❌ FFmpeg no disponible para conversión de video")
+            logger.error("FFmpeg no disponible para convertir video")
             return None
+        fps = min(float(fps), MAX_GIF_FPS)
+        if not size and not max_width:
+            max_width = int(self.config.get("steam_profile.width", 638))
 
-        width = self.config.get('steam_profile.width')
-        height = self.config.get('steam_profile.height')
+        cmd = [self.ffmpeg_path, "-hide_banner", "-y"]
+        if start_s and start_s > 0:
+            cmd += ["-ss", f"{start_s:.3f}"]  # input seek: fast and frame-accurate
+        cmd += ["-i", video_path]
+        if end_s and end_s > 0:
+            cmd += ["-t", f"{max(0.05, end_s - (start_s or 0)):.3f}"]
+        vf = f"fps={format_fps(fps)},{scale_filter(size, max_width)},{_PALETTE_FILTER}"
+        cmd += ["-vf", vf, "-loop", "0", output_path]
 
-        logger.info(f"🎬 Convirtiendo video a GIF: {video_path} -> {output_path}")
-        logger.info(f"📊 Configuración: {width}x{height} @ {fps} FPS")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info("Convirtiendo %s -> %s (%s fps)", video_path.name, output_path.name, format_fps(fps))
+        result = run_tool(cmd, timeout=900)
+        if result.returncode != 0 or not output_path.exists():
+            logger.error("Error convirtiendo video: %s", tail(result.stderr))
+            return None
+        # Intermediate file: the trailer is only patched on final fragments.
+        logger.info("Video convertido: %.2f MB", output_path.stat().st_size / 1048576)
+        return output_path
 
-        trim_args = []
-        if start_s is not None and start_s > 0:
-            trim_args += ["-ss", f"{start_s:.3f}"]
-        if end_s is not None and end_s > 0:
-            trim_args += ["-to", f"{end_s:.3f}"]
-        if trim_args:
-            logger.info(f"✂️ Recorte: {start_s or 0:.1f}s → {end_s if end_s else 'fin'}s")
+    # ------------------------------------------------------------------
+    # Frames -> GIF
+    # ------------------------------------------------------------------
+    def encode_frames_to_gif(self, frame_paths: Sequence[Path], output_path: Path,
+                             fps: Optional[float] = None,
+                             durations_ms: Optional[Sequence[int]] = None,
+                             max_width: Optional[int] = None) -> bool:
+        """Encode image files (any names, same size) into one GIF with FFmpeg.
 
-        cmd = [
-            str(self.ffmpeg_path),
-            "-i", str(video_path),
-            *trim_args,
-            "-vf", (
-                f"fps={fps},"                                              # resample to target frame rate
-                f"scale={width}:{height}:flags=lanczos,"                  # resize with Lanczos
-                f"split[s0][s1];"                                          # duplicate for 2-pass palette
-                f"[s0]palettegen=max_colors=256:stats_mode=full[p];"      # pass 1: global palette
-                f"[s1][p]paletteuse=dither=sierra2_4a"                    # pass 2: apply dither
-            ),
-            "-y", str(output_path)
-        ]
-        
+        Give either a constant ``fps`` or one duration per frame. Frame rates
+        above 50 fps are resampled down so the animation keeps its real speed.
+        """
+        if not self.check_ffmpeg() or not frame_paths:
+            return False
+        if durations_ms is None:
+            fps = min(float(fps or 24), 1000.0)
+            durations_ms = [1000.0 / fps] * len(frame_paths)
+        list_file = None
         try:
-            result = subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=120, **_NO_WINDOW_FLAGS)
-            size_mb = output_path.stat().st_size / (1024 * 1024)
-            logger.info(f"✅ Video convertido: {size_mb:.2f} MB")
-            # NO parcheamos el trailer aquí: es un paso intermedio y Pillow
-            # no puede leer GIFs con 0x21 al final. El parche se aplica solo
-            # en fragmentos finales (split) y en el uploader.
-            return output_path
-        except subprocess.TimeoutExpired:
-            logger.error("❌ Timeout convirtiendo video (>2 minutos)")
-            return None
-        except Exception as e:
-            logger.error(f"❌ Error convirtiendo video: {e}")
-            return None
+            # Concat list: one entry per frame with its own duration. Images
+            # get a 1/100 s time base (the default 1/25 s would round every
+            # delay to 40 ms steps).
+            fd, name = tempfile.mkstemp(suffix=".ffconcat", prefix="wkart_")
+            list_file = Path(name)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write("ffconcat version 1.0\n")
+                for path, ms in zip(frame_paths, durations_ms):
+                    safe = str(Path(path).resolve()).replace("\\", "/").replace("'", "'\\''")
+                    f.write(f"file '{safe}'\noption framerate 100\n"
+                            f"duration {max(ms, 1) / 1000:.4f}\n")
 
+            real_fps = 1000.0 * len(durations_ms) / max(1.0, sum(durations_ms))
+            filters = []
+            if real_fps > MAX_GIF_FPS:
+                # Too fast for a GIF: drop frames to 50 fps, keeping the speed.
+                filters.append(f"fps={format_fps(MAX_GIF_FPS)}")
+                final_delay_cs = 2
+            else:
+                final_delay_cs = max(2, round(durations_ms[-1] / 10))
+            filters.append(scale_filter(max_width=max_width))
+            filters.append(_PALETTE_FILTER)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            result = run_tool([self.ffmpeg_path, "-hide_banner", "-y",
+                               "-f", "concat", "-safe", "0", "-i", list_file,
+                               "-vf", ",".join(f for f in filters if f), "-fps_mode", "vfr",
+                               "-final_delay", str(final_delay_cs),
+                               "-loop", "0", output_path], timeout=900)
+            if result.returncode != 0 or not output_path.exists():
+                logger.error("Error creando GIF: %s", tail(result.stderr))
+                return False
+            return True
+        except OSError as e:
+            logger.error("Error creando GIF: %s", e)
+            return False
+        finally:
+            if list_file is not None:
+                list_file.unlink(missing_ok=True)
+
+    def create_optimized_gif(self, frame_paths: List[Path], output_path: Path, fps: float,
+                             max_width: Optional[int] = None) -> bool:
+        """Assemble processed frames (AI upscale, RIFE) into an intermediate GIF.
+
+        The aspect ratio is kept; the width is limited to the Steam profile
+        width so the file stays manageable for the next steps.
+        """
+        valid = [p for p in frame_paths if Path(p).exists()]
+        if not valid:
+            logger.error("No hay frames validos para crear el GIF")
+            return False
+        if max_width is None:
+            max_width = int(self.config.get("steam_profile.width", 638))
+        if not self.encode_frames_to_gif(valid, output_path, fps=fps, max_width=max_width):
+            return False
+        self._try_gifsicle_optimize(output_path)
+        logger.info("GIF creado: %s (%.2f MB)", output_path.name,
+                    output_path.stat().st_size / 1048576)
+        return True
+
+    # ------------------------------------------------------------------
+    # gifsicle (lossless LZW recompression of intermediate GIFs)
+    # ------------------------------------------------------------------
+    def _download_gifsicle(self) -> Optional[Path]:
+        """Download gifsicle.exe into SteamWorkshopAppData/ (once per session)."""
+        if self._gifsicle_unavailable or os.name != "nt":
+            return None
+        dest = DATA_DIR / "gifsicle.exe"
+        if dest.exists():
+            return dest
+        import requests
+        for url in _GIFSICLE_URLS:
+            tmp = None
+            try:
+                resp = requests.get(url, stream=True, timeout=30)
+                resp.raise_for_status()
+                fd, name = tempfile.mkstemp(suffix=".zip")
+                tmp = Path(name)
+                with os.fdopen(fd, "wb") as f:
+                    for chunk in resp.iter_content(65536):
+                        f.write(chunk)
+                with zipfile.ZipFile(tmp) as zf:
+                    member = next((n for n in zf.namelist()
+                                   if n.lower().endswith("gifsicle.exe")), None)
+                    if member:
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        dest.write_bytes(zf.read(member))
+                if dest.exists():
+                    logger.info("gifsicle descargado: %s", dest)
+                    return dest
+            except Exception as e:  # network/zip errors: try the next mirror
+                logger.warning("No se pudo descargar gifsicle (%s): %s", url, e)
+            finally:
+                if tmp is not None:
+                    tmp.unlink(missing_ok=True)
+        self._gifsicle_unavailable = True
+        return None
+
+    def _try_gifsicle_optimize(self, gif_path: Path) -> None:
+        """Run gifsicle --optimize=3 in place; keep the result only if smaller."""
+        exe = self.gifsicle_path if self.gifsicle_path and self.gifsicle_path.exists() else None
+        exe = exe or self._download_gifsicle()
+        if not exe:
+            return
+        self.gifsicle_path = exe
+        out = gif_path.with_name(gif_path.stem + "_gs.gif")
+        result = run_tool([exe, "--optimize=3", "-o", out, gif_path], timeout=180)
+        try:
+            if result.returncode == 0 and out.exists() and out.stat().st_size < gif_path.stat().st_size:
+                before = gif_path.stat().st_size
+                out.replace(gif_path)
+                logger.info("gifsicle: %.2f -> %.2f MB", before / 1048576,
+                            gif_path.stat().st_size / 1048576)
+        finally:
+            out.unlink(missing_ok=True)
+
+    # ------------------------------------------------------------------
+    # Steam trailer patch
+    # ------------------------------------------------------------------
+    def _patch_gif_trailer(self, path: Path) -> bool:
+        """Replace the final 0x3B trailer with 0x21 so Steam shows the GIF full size.
+
+        Only final fragments are patched: Pillow cannot read patched files, so
+        intermediate GIFs keep a valid trailer (see gif_utils.open_gif).
+        """
+        if not self.patch_trailer_for_steam or not path or not path.exists():
+            return False
+        try:
+            with open(path, "r+b") as f:
+                f.seek(-1, os.SEEK_END)
+                if f.read(1) != b"\x3B":
+                    return False
+                f.seek(-1, os.SEEK_END)
+                f.write(b"\x21")
+            return True
+        except OSError as e:
+            logger.warning("No se pudo parchear %s: %s", path.name, e)
+            return False

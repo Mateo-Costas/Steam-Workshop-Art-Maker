@@ -1,1762 +1,562 @@
 """
-i18n.py - Internationalization for ES, EN, and PT locales.
+i18n.py - Interface texts in Spanish, English and Portuguese (Brazil).
 
-All UI strings are stored in three flat dicts (ES, EN, PT). The active locale
-is held in the module-level _current_lang variable and switched at runtime via
-set_language(). Lookups fall back to ES if a key is missing in EN or PT.
+Every text is one entry of _STRINGS: key -> (ES, EN, PT). Keeping the three
+languages side by side makes a missing translation impossible. Texts may
+contain {placeholders}, filled by t(key, name=value).
 
 Usage:
-    from i18n import t, set_language, get_language
+    from i18n import t, set_language
     set_language("EN")
-    label.configure(text=t("open_file"))          # "Open file"
-    msg = t("welcome_log")                        # "WorkshopArt v1.0 started"
-    fmt = t("current_size_log", current=1.2, target=4.5)  # format placeholders
-
-String keys are organized by the file/method that uses them (see inline comments
-in each dict). Format placeholders use {name} syntax and are resolved by t().
+    button.configure(text=t("fragment_now"))
+    t("info_size", mb=1.5)   # -> "Size: 1.50 MB"
 """
 
-# Active locale — module-level so t() always reads the latest value without passing state around.
-_current_lang = "ES"
+_STRINGS = {
+    # ---- Main window -------------------------------------------------------
+    "help": ("Ayuda", "Help", "Ajuda"),
+    "tip_help": ("Guía completa (F1)", "Full guide (F1)", "Guia completo (F1)"),
+    "font_scale": ("Tamaño de texto", "Text size", "Tamanho do texto"),
+    "tip_font_scale": ("Tamaño del texto (requiere reiniciar)", "Text size (restart required)",
+                       "Tamanho do texto (requer reiniciar)"),
+    "restart_for_scale": ("El nuevo tamaño de texto se aplicará al reiniciar la aplicación.",
+                          "The new text size will be applied when the app restarts.",
+                          "O novo tamanho de texto será aplicado ao reiniciar o aplicativo."),
+    "step_file": ("Archivo", "File", "Arquivo"),
+    "step_process": ("Procesar", "Process", "Processar"),
+    "step_fragment": ("Fragmentar", "Fragment", "Fragmentar"),
+    "step_upload": ("Subir", "Upload", "Enviar"),
+    "log_title": ("Log de proceso", "Process log", "Log do processo"),
+    "status_ready": ("Listo", "Ready", "Pronto"),
+    "cancel_btn": ("Cancelar", "Cancel", "Cancelar"),
+    "cancelling": ("Cancelando...", "Cancelling...", "Cancelando..."),
+    "cancel_requested_log": ("Cancelación solicitada", "Cancellation requested", "Cancelamento solicitado"),
+    "close_btn": ("Cerrar", "Close", "Fechar"),
+    "yes": ("Sí", "Yes", "Sim"),
+    "no": ("No", "No", "Não"),
+    "warning_title": ("Aviso", "Warning", "Aviso"),
+    "error_title": ("Error", "Error", "Erro"),
+    "models_label": ("Modelos", "Models", "Modelos"),
+    "available": ("OK", "OK", "OK"),
+    "not_detected": ("No detectada", "Not detected", "Não detectada"),
+    "not_found": ("No encontrado", "Not found", "Não encontrado"),
+    "unsupported_format_title": ("Formato no soportado", "Unsupported format", "Formato não suportado"),
+    "unsupported_format_msg": ("El archivo arrastrado no es un formato multimedia soportado.",
+                               "The dropped file is not a supported media format.",
+                               "O arquivo arrastado não é um formato de mídia suportado."),
+    "status_file_loaded": ("Archivo cargado", "File loaded", "Arquivo carregado"),
+    "status_done": ("Completado", "Done", "Concluído"),
+    "status_error": ("Error", "Error", "Erro"),
+    "status_cancelled": ("Cancelado", "Cancelled", "Cancelado"),
+    "status_extracting": ("Extrayendo frames...", "Extracting frames...", "Extraindo frames..."),
+    "status_building_gif": ("Creando GIF...", "Building GIF...", "Criando GIF..."),
+    "status_colors": ("Mejorando colores...", "Adjusting colors...", "Ajustando cores..."),
+    "status_converting": ("Convirtiendo video a GIF...", "Converting video to GIF...",
+                          "Convertendo vídeo em GIF..."),
+    "status_rife": ("Interpolando con RIFE...", "Interpolating with RIFE...", "Interpolando com RIFE..."),
+    "status_fragmenting": ("Fragmentando...", "Fragmenting...", "Fragmentando..."),
+    "status_optimizing": ("Optimizando...", "Optimizing...", "Otimizando..."),
+    "saved_in": ("Guardado en:\n{path}", "Saved to:\n{path}", "Salvo em:\n{path}"),
 
-# ---------------------------------------------------------------------------
-# Translation dictionaries
-# ---------------------------------------------------------------------------
+    # ---- Step 1: file ----------------------------------------------------------
+    "drop_here": ("Arrastra tu archivo aquí", "Drop your file here", "Arraste seu arquivo aqui"),
+    "supported_formats": ("GIF · MP4 · MOV · MKV · WEBM · AVI · JPG · PNG · WEBP",
+                          "GIF · MP4 · MOV · MKV · WEBM · AVI · JPG · PNG · WEBP",
+                          "GIF · MP4 · MOV · MKV · WEBM · AVI · JPG · PNG · WEBP"),
+    "select_file_btn": ("Seleccionar archivo", "Select file", "Selecionar arquivo"),
+    "tip_open_file": ("Abrir un archivo multimedia (Ctrl+O)", "Open a media file (Ctrl+O)",
+                      "Abrir um arquivo de mídia (Ctrl+O)"),
+    "is_anime_question": ("¿Tu contenido es anime?", "Is your content anime?", "Seu conteúdo é anime?"),
+    "anime_yes": ("Sí, anime", "Yes, anime", "Sim, anime"),
+    "anime_no": ("No", "No", "Não"),
+    "tip_is_anime": ("Elige el tipo de contenido para recomendar el mejor modelo de IA",
+                     "Choose the content type to pick the best AI model",
+                     "Escolha o tipo de conteúdo para recomendar o melhor modelo de IA"),
+    "recent_files": ("Recientes:", "Recent:", "Recentes:"),
+    "file_missing": ("El archivo ya no existe:\n{path}", "The file no longer exists:\n{path}",
+                     "O arquivo não existe mais:\n{path}"),
+    "media_files": ("Archivos multimedia", "Media files", "Arquivos de mídia"),
+    "videos": ("Videos", "Videos", "Vídeos"),
+    "images": ("Imágenes", "Images", "Imagens"),
+    "all_files": ("Todos", "All files", "Todos"),
+    "loading_preview": ("Cargando preview...", "Loading preview...", "Carregando preview..."),
+    "preview_unavailable": ("(preview no disponible)", "(preview unavailable)", "(preview indisponível)"),
+    "info_size": ("Tamaño: {mb:.2f} MB", "Size: {mb:.2f} MB", "Tamanho: {mb:.2f} MB"),
+    "info_dims": ("Dimensiones: {w}x{h}", "Dimensions: {w}x{h}", "Dimensões: {w}x{h}"),
+    "info_frames": ("Frames: {n}", "Frames: {n}", "Frames: {n}"),
+    "info_duration": ("Duración: {s:.1f} s", "Duration: {s:.1f} s", "Duração: {s:.1f} s"),
+    "info_unreadable": ("No se pudo leer el archivo: {err}", "Could not read the file: {err}",
+                        "Não foi possível ler o arquivo: {err}"),
+    "info_suggested": ("Formato sugerido: {preset}", "Suggested format: {preset}",
+                       "Formato sugerido: {preset}"),
 
-ES = {
-    # ---- gui.py  Sidebar ----
-    "app_title": "WorkshopArt",
-    "version": "v1.0",
-    "open_file": "Abrir archivo",
-    "process_ai": "Procesar con IA",
-    "colors_only": "Solo colores",
-    "mp4_to_gif": "MP4 a GIF",
-    "enhance_animation": "Mejorar animación",
-    "fragment_steam": "Fragmentar...",
-    "optimize_size": "Optimizar a 5MB",
-    "tip_open_file": "Carga un video, GIF o imagen (MP4, AVI, MOV, GIF, JPG, PNG)",
-    "tip_process_ai": "Escala 4x con IA y mejora colores",
-    "tip_colors_only": "Mejora contraste y saturación sin upscaling",
-    "tip_mp4_to_gif": "Convierte un video MP4 a GIF animado",
-    "tip_enhance_animation": "Mejora FPS y fluidez de la animación",
-    "tip_fragment_steam": "Elige formato: Workshop, Artwork, Screenshot, Panorama, Grids...",
-    "tip_optimize_size": "Reduce fragmentos por debajo del límite de 5MB manteniendo máxima calidad",
-    "download_models": "Descargar modelos IA",
-    "tip_download_models": "Descarga modelos Real-ESRGAN y Real-CUGAN (~200 MB)",
-    "help": "Ayuda",
-    "gpu_label": "GPU: ...",
-    "ffmpeg_label": "FFmpeg: ...",
-    "models_label": "Modelos: ...",
+    # ---- Step 2: process -------------------------------------------------------
+    "ai_model": ("Modelo de IA", "AI model", "Modelo de IA"),
+    "model_scores": ("Calidad: {q}/10 | Velocidad: {s}/10", "Quality: {q}/10 | Speed: {s}/10",
+                     "Qualidade: {q}/10 | Velocidade: {s}/10"),
+    "model_desc_realesr-animevideov3-x2": ("Anime/juegos 2x · rápido", "Anime/games 2x · fast",
+                                           "Anime/jogos 2x · rápido"),
+    "model_desc_realesr-animevideov3-x3": ("Anime/juegos 3x · equilibrado", "Anime/games 3x · balanced",
+                                           "Anime/jogos 3x · equilibrado"),
+    "model_desc_realesr-animevideov3-x4": ("Anime/juegos 4x · alta calidad", "Anime/games 4x · high quality",
+                                           "Anime/jogos 4x · alta qualidade"),
+    "model_desc_realesrgan-x4plus-anime": ("Ilustración anime 4x · máxima calidad",
+                                           "Anime illustration 4x · best quality",
+                                           "Ilustração anime 4x · máxima qualidade"),
+    "model_desc_realesrgan-x4plus": ("Uso general 4x · versátil", "General purpose 4x · versatile",
+                                     "Uso geral 4x · versátil"),
+    "model_desc_realesrnet-x4plus": ("Fotos realistas 4x", "Realistic photos 4x", "Fotos realistas 4x"),
+    "model_desc_realesr-general-x4v3": ("General 4x · ligero y rápido", "General 4x · light and fast",
+                                        "Geral 4x · leve e rápido"),
+    "model_desc_cugan-se-2x-no-denoise": ("CUGAN anime 2x · sin reducción de ruido", "CUGAN anime 2x · no denoise",
+                                          "CUGAN anime 2x · sem redução de ruído"),
+    "model_desc_cugan-se-2x-denoise3": ("CUGAN anime 2x · reducción de ruido fuerte",
+                                        "CUGAN anime 2x · strong denoise",
+                                        "CUGAN anime 2x · redução de ruído forte"),
+    "model_desc_cugan-se-3x-no-denoise": ("CUGAN anime 3x", "CUGAN anime 3x", "CUGAN anime 3x"),
+    "model_desc_cugan-se-4x-no-denoise": ("CUGAN anime 4x · máxima calidad", "CUGAN anime 4x · best quality",
+                                          "CUGAN anime 4x · máxima qualidade"),
+    "processing_section": ("Procesamiento", "Processing", "Processamento"),
+    "use_gpu": ("Usar GPU", "Use GPU", "Usar GPU"),
+    "tip_use_gpu": ("La GPU es de 5 a 10 veces más rápida que la CPU",
+                    "The GPU is 5 to 10 times faster than the CPU",
+                    "A GPU é de 5 a 10 vezes mais rápida que a CPU"),
+    "enhance_colors": ("Aplicar ajustes de color tras la IA", "Apply color adjustments after the AI",
+                       "Aplicar ajustes de cor após a IA"),
+    "tip_enhance_colors": ("Usa los ajustes de la derecha al terminar la IA y en el pipeline",
+                           "Uses the adjustments on the right after the AI and in the pipeline",
+                           "Usa os ajustes da direita ao terminar a IA e no pipeline"),
+    "live_preview": ("Preview en vivo", "Live preview", "Preview ao vivo"),
+    "preview_no_file": ("Carga un GIF o imagen para ver el preview", "Load a GIF or image to see the preview",
+                        "Carregue um GIF ou imagem para ver o preview"),
+    "color_adjustments": ("Ajustes de color", "Color adjustments", "Ajustes de cor"),
+    "contrast": ("Contraste", "Contrast", "Contraste"),
+    "saturation": ("Saturación", "Saturation", "Saturação"),
+    "vibrance": ("Vibrance", "Vibrance", "Vibrância"),
+    "sharpness": ("Nitidez", "Sharpness", "Nitidez"),
+    "temperature": ("Temperatura", "Temperature", "Temperatura"),
+    "process_ai": ("Procesar con IA", "Process with AI", "Processar com IA"),
+    "tip_process_ai": ("Mejorar la resolución con Real-ESRGAN / Real-CUGAN",
+                       "Improve the resolution with Real-ESRGAN / Real-CUGAN",
+                       "Melhorar a resolução com Real-ESRGAN / Real-CUGAN"),
+    "colors_only": ("Solo colores", "Colors only", "Só cores"),
+    "tip_colors_only": ("Aplicar los ajustes de color sin IA (rápido)",
+                        "Apply the color adjustments without AI (fast)",
+                        "Aplicar os ajustes de cor sem IA (rápido)"),
+    "mp4_to_gif": ("Video → GIF", "Video → GIF", "Vídeo → GIF"),
+    "tip_mp4_to_gif": ("Convertir un video a GIF con recorte y FPS a elegir",
+                       "Convert a video to GIF choosing trim and FPS",
+                       "Converter um vídeo em GIF escolhendo corte e FPS"),
+    "enhance_animation": ("Mejorar animación", "Smooth animation", "Suavizar animação"),
+    "tip_enhance_animation": ("Interpolar frames con RIFE para una animación más fluida",
+                              "Interpolate frames with RIFE for a smoother animation",
+                              "Interpolar frames com RIFE para uma animação mais fluida"),
+    "download_models": ("Descargar modelos", "Download models", "Baixar modelos"),
+    "tip_download_models": ("Descargar los modelos de IA (unos 90 MB)", "Download the AI models (about 90 MB)",
+                            "Baixar os modelos de IA (cerca de 90 MB)"),
+    "download_models_confirm": (
+        "Se descargarán los modelos de IA (unos 90 MB):\n\n"
+        "• Real-ESRGAN: Anime Video v3 (2x, 3x, 4x), x4plus Anime y x4plus\n"
+        "• Real-CUGAN: modelos anime SE (2x, 3x, 4x)\n\n¿Continuar?",
+        "The AI models will be downloaded (about 90 MB):\n\n"
+        "• Real-ESRGAN: Anime Video v3 (2x, 3x, 4x), x4plus Anime and x4plus\n"
+        "• Real-CUGAN: SE anime models (2x, 3x, 4x)\n\nContinue?",
+        "Os modelos de IA serão baixados (cerca de 90 MB):\n\n"
+        "• Real-ESRGAN: Anime Video v3 (2x, 3x, 4x), x4plus Anime e x4plus\n"
+        "• Real-CUGAN: modelos anime SE (2x, 3x, 4x)\n\nContinuar?"),
+    "models_ready": ("Modelos descargados", "Models downloaded", "Modelos baixados"),
+    "models_ready_msg": ("{n} modelos listos en:\n{path}", "{n} models ready in:\n{path}",
+                         "{n} modelos prontos em:\n{path}"),
+    "models_download_failed": (
+        "No se pudieron descargar los modelos.\n\nComprueba la conexión a internet o el firewall.\n"
+        "Detalles en el log de proceso.",
+        "The models could not be downloaded.\n\nCheck your internet connection or firewall.\n"
+        "Details in the process log.",
+        "Não foi possível baixar os modelos.\n\nVerifique a conexão com a internet ou o firewall.\n"
+        "Detalhes no log do processo."),
+    "select_file_first": ("Primero selecciona un archivo", "Select a file first", "Primeiro selecione um arquivo"),
+    "select_model_first": ("No hay modelos de IA. Usa 'Descargar modelos' primero.",
+                           "There are no AI models. Use 'Download models' first.",
+                           "Não há modelos de IA. Use 'Baixar modelos' primeiro."),
+    "confirm_ai": (
+        "¿Procesar con IA?\n\nArchivo: {file}\nModelo: {model}\nModo: {mode}\n"
+        "Mejorar colores: {colors}\n\nPuede tardar varios minutos.",
+        "Process with AI?\n\nFile: {file}\nModel: {model}\nMode: {mode}\n"
+        "Adjust colors: {colors}\n\nIt may take several minutes.",
+        "Processar com IA?\n\nArquivo: {file}\nModelo: {model}\nModo: {mode}\n"
+        "Ajustar cores: {colors}\n\nPode levar vários minutos."),
+    "ai_done": (
+        "Procesamiento completado.\n\nArchivo: {file}\nTamaño: {mb:.2f} MB\n\n"
+        "Ya puedes fragmentarlo en el paso 3.",
+        "Processing finished.\n\nFile: {file}\nSize: {mb:.2f} MB\n\nYou can now fragment it in step 3.",
+        "Processamento concluído.\n\nArquivo: {file}\nTamanho: {mb:.2f} MB\n\n"
+        "Agora você pode fragmentá-lo na etapa 3."),
+    "err_ai_failed": ("El procesamiento con IA ha fallado. Prueba con otro modelo o desactiva la GPU.",
+                      "AI processing failed. Try another model or turn off the GPU.",
+                      "O processamento com IA falhou. Tente outro modelo ou desative a GPU."),
+    "err_extract_frames": ("No se pudieron extraer los frames", "The frames could not be extracted",
+                           "Não foi possível extrair os frames"),
+    "err_build_gif": ("No se pudo crear el GIF", "The GIF could not be created", "Não foi possível criar o GIF"),
+    "colors_need_gif": ("Convierte primero el video a GIF (botón Video → GIF).",
+                        "Convert the video to GIF first (Video → GIF button).",
+                        "Converta primeiro o vídeo em GIF (botão Vídeo → GIF)."),
+    "err_colors": ("No se pudieron aplicar los ajustes de color. Revisa el log de proceso.",
+                   "The color adjustments could not be applied. Check the process log.",
+                   "Não foi possível aplicar os ajustes de cor. Veja o log do processo."),
+    "not_a_video": ("El archivo seleccionado no es un video.", "The selected file is not a video.",
+                    "O arquivo selecionado não é um vídeo."),
+    "convert_title": ("Convertir video a GIF", "Convert video to GIF", "Converter vídeo em GIF"),
+    "gif_fps": ("FPS del GIF", "GIF FPS", "FPS do GIF"),
+    "custom_fps": ("Otro valor (1-50):", "Other value (1-50):", "Outro valor (1-50):"),
+    "invalid_fps": ("FPS no válido", "Invalid FPS", "FPS inválido"),
+    "trim": ("Recorte", "Trim", "Corte"),
+    "trim_range": ("De {a:.1f} s a {b:.1f} s → {d:.1f} s de GIF", "From {a:.1f} s to {b:.1f} s → {d:.1f} s of GIF",
+                   "De {a:.1f} s a {b:.1f} s → {d:.1f} s de GIF"),
+    "gif_size": ("Tamaño", "Size", "Tamanho"),
+    "shrink_to_steam": ("Reducir a {w} px de ancho (Steam)", "Shrink to {w} px wide (Steam)",
+                        "Reduzir para {w} px de largura (Steam)"),
+    "shrink_hint": ("Desmárcalo para conservar la resolución original (útil para Panorama).",
+                    "Untick it to keep the original resolution (useful for Panorama).",
+                    "Desmarque para manter a resolução original (útil para Panorama)."),
+    "apply_color_sliders": ("Aplicar también los ajustes de color del paso 2",
+                            "Also apply the color adjustments from step 2",
+                            "Aplicar também os ajustes de cor da etapa 2"),
+    "size_estimate": ("Tamaño estimado: ~{mb:.1f} MB", "Estimated size: ~{mb:.1f} MB",
+                      "Tamanho estimado: ~{mb:.1f} MB"),
+    "convert_btn": ("Convertir a GIF", "Convert to GIF", "Converter em GIF"),
+    "err_convert": ("No se pudo convertir el video. Revisa el log de proceso.",
+                    "The video could not be converted. Check the process log.",
+                    "Não foi possível converter o vídeo. Veja o log do processo."),
+    "rife_needs_animation": ("RIFE necesita un GIF o un video.", "RIFE needs a GIF or a video.",
+                             "O RIFE precisa de um GIF ou de um vídeo."),
+    "rife_missing": ("RIFE no está instalado. Reinicia la aplicación para que se descargue automáticamente.",
+                     "RIFE is not installed. Restart the app to download it automatically.",
+                     "O RIFE não está instalado. Reinicie o aplicativo para baixá-lo automaticamente."),
+    "rife_multiplier": ("Multiplicar frames:", "Multiply frames:", "Multiplicar frames:"),
+    "rife_tta": ("Calidad máxima (TTA), unas 4 veces más lento", "Maximum quality (TTA), about 4 times slower",
+                 "Qualidade máxima (TTA), cerca de 4 vezes mais lento"),
+    "rife_fps_note": ("Los GIF no pasan de 50 FPS: si el resultado los supera se ajusta sin cambiar la velocidad.",
+                      "GIFs cannot go above 50 FPS: faster results are adjusted without changing the speed.",
+                      "GIFs não passam de 50 FPS: se o resultado passar, é ajustado sem mudar a velocidade."),
+    "apply_rife": ("Aplicar RIFE", "Apply RIFE", "Aplicar RIFE"),
 
-    # ---- gui.py  Center ----
-    "drop_here": "Arrastra un archivo aquí",
-    "supported_formats": "MP4 / AVI / MOV / GIF / JPG / PNG",
-    "select_file_btn": "Seleccionar archivo",
-    "log_title": "Registro",
+    # ---- Step 3: fragment ------------------------------------------------------
+    "section_workshop_banner": ("WORKSHOP SHOWCASE · BANNER ANIMADO", "WORKSHOP SHOWCASE · ANIMATED BANNER",
+                                "WORKSHOP SHOWCASE · BANNER ANIMADO"),
+    "section_artwork": ("ARTWORK SHOWCASE", "ARTWORK SHOWCASE", "ARTWORK SHOWCASE"),
+    "section_screenshot": ("SCREENSHOT SHOWCASE", "SCREENSHOT SHOWCASE", "SCREENSHOT SHOWCASE"),
+    "section_workshop_grid": ("WORKSHOP SHOWCASE · CUADRADOS", "WORKSHOP SHOWCASE · SQUARES",
+                              "WORKSHOP SHOWCASE · QUADRADOS"),
+    "most_used": ("MÁS USADO", "MOST USED", "MAIS USADO"),
+    "dims_free_height": ("{widths} px de ancho · alto libre", "{widths} px wide · any height",
+                         "{widths} px de largura · altura livre"),
+    "preset_workshop_5part": ("Workshop Showcase · 5 partes", "Workshop Showcase · 5 parts",
+                              "Workshop Showcase · 5 partes"),
+    "note_workshop_5part": ("Una imagen 638×354 cortada en 5 columnas: el formato más usado para GIF de perfil",
+                            "A 638×354 image cut into 5 columns: the most used format for profile GIFs",
+                            "Uma imagem 638×354 cortada em 5 colunas: o formato mais usado para GIFs de perfil"),
+    "preset_artwork_2part": ("Artwork · principal + lateral", "Artwork · main + side", "Artwork · principal + lateral"),
+    "note_artwork_2part": ("Diseño clásico de 2 columnas; acepta GIF e imágenes",
+                           "Classic 2-column layout; works with GIFs and images",
+                           "Layout clássico de 2 colunas; aceita GIFs e imagens"),
+    "preset_featured_630": ("Featured Artwork · 1 hueco grande", "Featured Artwork · 1 large slot",
+                            "Featured Artwork · 1 espaço grande"),
+    "note_featured_630": ("Imagen o GIF grande en la parte superior del perfil",
+                          "A large image or GIF at the top of the profile",
+                          "Imagem ou GIF grande no topo do perfil"),
+    "preset_artwork_single_630": ("Artwork único · 16:9", "Single artwork · 16:9", "Artwork único · 16:9"),
+    "note_artwork_single_630": ("Un único GIF o imagen en proporción 16:9", "A single GIF or image in 16:9",
+                                "Um único GIF ou imagem em 16:9"),
+    "preset_artwork_4grid": ("Artwork 4-grid · cuadrícula", "Artwork 4-grid", "Artwork 4-grid"),
+    "note_artwork_4grid": ("Cuatro cuadrados iguales formando una tira", "Four equal squares forming a strip",
+                           "Quatro quadrados iguais formando uma faixa"),
+    "preset_panorama_5_630": ("Panorama · banner ultra-ancho", "Panorama · ultra-wide banner",
+                              "Panorama · banner ultralargo"),
+    "note_panorama_5_630": ("Banner horizontal de 5 piezas (se sube con el truco de dimensiones)",
+                            "5-piece horizontal banner (uploaded with the size trick)",
+                            "Banner horizontal de 5 peças (enviado com o truque de dimensões)"),
+    "preset_screenshot_638": ("Screenshot · 1 hueco", "Screenshot · 1 slot", "Screenshot · 1 espaço"),
+    "note_screenshot_638": ("Una sola captura animada en el showcase de capturas",
+                            "A single animated screenshot in the screenshot showcase",
+                            "Uma única captura animada no showcase de capturas"),
+    "preset_screenshot_4grid": ("Screenshot · 4 piezas", "Screenshot · 4 pieces", "Screenshot · 4 peças"),
+    "note_screenshot_4grid": ("Cuatro capturas formando una tira horizontal",
+                              "Four screenshots forming a horizontal strip",
+                              "Quatro capturas formando uma faixa horizontal"),
+    "preset_workshop_5slot_150": ("Workshop · 5 cuadrados de 150 px", "Workshop · 5 squares, 150 px",
+                                  "Workshop · 5 quadrados de 150 px"),
+    "note_workshop_5slot_150": ("Tamaño de subida recomendado, sin bordes negros",
+                                "Recommended upload size, no black borders",
+                                "Tamanho de envio recomendado, sem bordas pretas"),
+    "preset_workshop_5slot_119": ("Workshop · 5 cuadrados de 119 px (nativo)",
+                                  "Workshop · 5 squares, 119 px (native)",
+                                  "Workshop · 5 quadrados de 119 px (nativo)"),
+    "note_workshop_5slot_119": ("Tamaño real de los huecos del Workshop", "Real size of the Workshop slots",
+                                "Tamanho real dos espaços do Workshop"),
+    "fragment_now": ("Fragmentar", "Fragment", "Fragmentar"),
+    "tip_fragment_steam": ("Cortar en piezas listas para Steam (máx. 5 MB cada una)",
+                           "Cut into Steam-ready pieces (max 5 MB each)",
+                           "Cortar em peças prontas para a Steam (máx. 5 MB cada)"),
+    "open_preview": ("Preview de fragmentos", "Fragment preview", "Preview dos fragmentos"),
+    "tip_open_preview": ("Ver cómo quedará el corte antes de fragmentar",
+                         "See how the cut will look before fragmenting",
+                         "Ver como ficará o corte antes de fragmentar"),
+    "pipeline_one_click": ("Pipeline 1-clic", "1-click pipeline", "Pipeline 1 clique"),
+    "tip_pipeline": ("Todo automático: IA + colores + fragmentar", "Fully automatic: AI + colors + fragment",
+                     "Tudo automático: IA + cores + fragmentar"),
+    "pipeline_step_ai": ("Mejorar con IA ({model})", "Improve with AI ({model})", "Melhorar com IA ({model})"),
+    "pipeline_step_colors": ("Aplicar los ajustes de color", "Apply the color adjustments",
+                             "Aplicar os ajustes de cor"),
+    "pipeline_step_fragment": ("Fragmentar: {preset}", "Fragment: {preset}", "Fragmentar: {preset}"),
+    "pipeline_confirm": ("Se ejecutará todo automáticamente:\n\n{steps}\n\nPuede tardar varios minutos. ¿Continuar?",
+                         "Everything will run automatically:\n\n{steps}\n\nIt may take several minutes. Continue?",
+                         "Tudo será executado automaticamente:\n\n{steps}\n\nPode levar vários minutos. Continuar?"),
+    "optimize_size": ("Optimizar ≤ 5 MB", "Optimize ≤ 5 MB", "Otimizar ≤ 5 MB"),
+    "tip_optimize_size": ("Reducir GIF que ya tengas por debajo de 5 MB sin desincronizarlos",
+                          "Shrink GIFs you already have below 5 MB without desyncing them",
+                          "Reduzir GIFs que você já tem para menos de 5 MB sem dessincronizá-los"),
+    "pick_gifs_to_optimize": ("Selecciona los GIF a optimizar", "Select the GIFs to optimize",
+                              "Selecione os GIFs para otimizar"),
+    "ask_max_mb": ("Tamaño máximo por archivo (MB).\nSteam rechaza más de 5 MB.",
+                   "Maximum size per file (MB).\nSteam rejects more than 5 MB.",
+                   "Tamanho máximo por arquivo (MB).\nA Steam recusa mais de 5 MB."),
+    "optimize_failed": ("No se pudo bajar del límite: recorta la duración del GIF.",
+                        "Could not get under the limit: trim the GIF duration.",
+                        "Não foi possível ficar abaixo do limite: reduza a duração do GIF."),
+    "err_fragment": ("La fragmentación ha fallado", "Fragmentation failed", "A fragmentação falhou"),
+    "fragments_ready": ("Fragmentos generados", "Generated fragments", "Fragmentos gerados"),
+    "fragments_summary": ("{n} archivo(s) · {mb:.2f} MB en total", "{n} file(s) · {mb:.2f} MB in total",
+                          "{n} arquivo(s) · {mb:.2f} MB no total"),
+    "js_instructions": ("En la página de subida de Steam, abre la consola (F12 → Console) y pega esto ANTES de guardar:",
+                        "On Steam's upload page, open the console (F12 → Console) and paste this BEFORE saving:",
+                        "Na página de envio da Steam, abra o console (F12 → Console) e cole isto ANTES de salvar:"),
+    "artwork_2part_hint": ("Sube los dos archivos y en Editar perfil → Artwork Showcase asigna el principal y el lateral a su hueco.",
+                           "Upload both files, then in Edit Profile → Artwork Showcase put the main and side images in their slots.",
+                           "Envie os dois arquivos e em Editar perfil → Artwork Showcase coloque o principal e o lateral em seus espaços."),
+    "copy_js": ("Copiar JS", "Copy JS", "Copiar JS"),
+    "copied": ("¡Copiado!", "Copied!", "Copiado!"),
 
-    # ---- gui.py  Right panel ----
-    "config_title": "Configuración",
-    "ai_model": "Modelo IA",
-    "auto_detect_model": "Auto-detectar modelo",
-    "processing_section": "Procesamiento",
-    "use_gpu": "Usar GPU",
-    "tip_use_gpu": "Procesa ~10x más rápido si tienes GPU compatible",
-    "quality_section": "Calidad",
-    "quality_high": "Alta",
-    "quality_balanced": "Balanceada",
-    "visual_enhancements": "Mejoras visuales",
-    "enhance_colors": "Mejorar colores",
-    "enhance_animation_check": "Mejorar animación",
-    "contrast": "Contraste",
-    "saturation": "Saturación",
-    "vibrance": "Vibrance",
-    "sharpness": "Nitidez",
-    "temperature": "Temperatura de color",
-    "model_info": "Info modelo",
-    "steam_workshop": "Steam Workshop",
-    "steam_instructions": (
-        "1. Fragmenta tu GIF\n"
-        "2. Sube los 5 archivos\n"
-        "3. Consola F12 > comandos JS\n"
-        "4. Publica en tu perfil"
-    ),
-    "view_tutorial": "Ver tutorial",
+    # ---- Fragment preview window ----------------------------------------------
+    "preset_label": ("Preset:", "Preset:", "Preset:"),
+    "show_my_profile": ("Mostrar mi perfil", "Show my profile", "Mostrar meu perfil"),
+    "profile_short": ("Tu perfil:", "Your profile:", "Seu perfil:"),
+    "preview_load_failed": ("No se pudo cargar {file}: {err}", "Could not load {file}: {err}",
+                            "Não foi possível carregar {file}: {err}"),
+    "steam_unreachable": ("No se pudo conectar con Steam: {err}", "Could not connect to Steam: {err}",
+                          "Não foi possível conectar à Steam: {err}"),
+    "steam_bad_answer": ("Respuesta inesperada de Steam (¿perfil privado?)",
+                         "Unexpected answer from Steam (private profile?)",
+                         "Resposta inesperada da Steam (perfil privado?)"),
+    "profile_unavailable": ("Perfil no disponible: {err}", "Profile unavailable: {err}", "Perfil indisponível: {err}"),
 
-    # ---- gui.py  Hardware requirements ----
-    "hw_requirements": "Requisitos IA",
-    "hw_info": (
-        "GPU: NVIDIA / AMD con Vulkan\n"
-        "(GTX 1060+ / RX 570+)\n"
-        "RAM: 8 GB mínimo\n"
-        "VRAM: 2 GB mínimo\n"
-        "Sin GPU: procesamiento por CPU\n"
-        "(mucho más lento, ~10x)"
-    ),
+    # ---- Step 4: upload --------------------------------------------------------
+    "refresh_fragments": ("Actualizar lista", "Refresh list", "Atualizar lista"),
+    "no_file_yet": ("Carga un archivo en el paso 1.", "Load a file in step 1.", "Carregue um arquivo na etapa 1."),
+    "no_fragments_yet": ("Aún no hay fragmentos: usa el paso 3.", "No fragments yet: use step 3.",
+                         "Ainda não há fragmentos: use a etapa 3."),
+    "format_label": ("Formato: {preset}", "Format: {preset}", "Formato: {preset}"),
+    "manual_upload": ("Subida manual", "Manual upload", "Envio manual"),
+    "manual_steps": (
+        "1. Abre la página de subida de Steam (botón Abrir Steam).\n"
+        "2. Abre la consola del navegador (F12 → Console).\n"
+        "3. Pega el código (botón Copiar JS, ya adaptado a tu formato) y pulsa Enter.\n"
+        "4. Sube el fragmento, ponle título, marca la casilla y guarda.\n"
+        "5. Repite con cada parte y colócalas en tu perfil (Editar perfil → Showcase).",
+        "1. Open Steam's upload page (Open Steam button).\n"
+        "2. Open the browser console (F12 → Console).\n"
+        "3. Paste the code (Copy JS button, already matched to your format) and press Enter.\n"
+        "4. Upload the fragment, give it a title, tick the checkbox and save.\n"
+        "5. Repeat for each part and place them on your profile (Edit Profile → Showcase).",
+        "1. Abra a página de envio da Steam (botão Abrir Steam).\n"
+        "2. Abra o console do navegador (F12 → Console).\n"
+        "3. Cole o código (botão Copiar JS, já adaptado ao seu formato) e pressione Enter.\n"
+        "4. Envie o fragmento, dê um título, marque a caixa e salve.\n"
+        "5. Repita para cada parte e coloque-as no seu perfil (Editar perfil → Showcase)."),
+    "open_fragments_folder": ("Abrir carpeta", "Open folder", "Abrir pasta"),
+    "tip_open_folder": ("Abrir la carpeta de fragmentos del archivo actual",
+                        "Open the fragments folder of the current file",
+                        "Abrir a pasta de fragmentos do arquivo atual"),
+    "tip_copy_js": ("Copiar el código de consola adecuado para este formato",
+                    "Copy the console code that matches this format",
+                    "Copiar o código de console adequado para este formato"),
+    "js_copied": ("Snippet JS copiado: pégalo en la consola del navegador (F12)",
+                  "JS snippet copied: paste it in the browser console (F12)",
+                  "Snippet JS copiado: cole no console do navegador (F12)"),
+    "open_workshop": ("Abrir Steam", "Open Steam", "Abrir Steam"),
+    "tip_open_workshop": ("Abrir la página de subida de Steam", "Open Steam's upload page",
+                          "Abrir a página de envio da Steam"),
+    "upload_tool": ("Upload Tool", "Upload Tool", "Upload Tool"),
+    "tip_upload_tool": ("Subida automática con tu sesión de Steam", "Automatic upload with your Steam session",
+                        "Envio automático com a sua sessão da Steam"),
+    "validate_profile": ("Validar perfil", "Check profile", "Validar perfil"),
+    "tip_validate_profile": ("Comprobar que tu perfil es público y de nivel 10+",
+                             "Check that your profile is public and level 10+",
+                             "Verificar se seu perfil é público e nível 10+"),
+    "profile_prompt": ("Tu nombre personalizado o la URL de tu perfil:", "Your custom name or profile URL:",
+                       "Seu nome personalizado ou a URL do seu perfil:"),
+    "validate_btn": ("Validar", "Check", "Validar"),
+    "profile_checking": ("Consultando Steam...", "Contacting Steam...", "Consultando a Steam..."),
+    "profile_found": ("✅ Perfil encontrado: {name}", "✅ Profile found: {name}", "✅ Perfil encontrado: {name}"),
+    "profile_level_ok": ("✅ Nivel {level}: puedes usar showcases", "✅ Level {level}: you can use showcases",
+                         "✅ Nível {level}: você pode usar showcases"),
+    "profile_level_low": ("⚠️ Nivel {level}: los showcases requieren nivel 10",
+                          "⚠️ Level {level}: showcases require level 10",
+                          "⚠️ Nível {level}: os showcases exigem nível 10"),
+    "profile_level_unknown": ("ℹ️ No se pudo leer el nivel (los showcases requieren nivel 10)",
+                              "ℹ️ The level could not be read (showcases require level 10)",
+                              "ℹ️ Não foi possível ler o nível (os showcases exigem nível 10)"),
+    "export_zip": ("Exportar ZIP", "Export ZIP", "Exportar ZIP"),
+    "tip_export_zip": ("Empaquetar fragmentos + instrucciones en un ZIP", "Pack fragments + instructions into a ZIP",
+                       "Empacotar fragmentos + instruções em um ZIP"),
+    "zip_readme": (
+        "WorkshopArt - pack para Steam\n\nFormato: {preset}\nArchivos: {count}\n\nCómo subirlos:\n"
+        "1. Abre {url}\n"
+        "2. Abre la consola del navegador (F12 -> Console), pega este código y pulsa Enter:\n\n{js}\n\n"
+        "3. Sube cada archivo, ponle título y guarda (repite para cada parte).\n"
+        "4. En tu perfil: Editar perfil -> Showcase -> asigna cada pieza a su hueco.\n\n"
+        "Los showcases requieren una cuenta de Steam de nivel 10 o más.\n",
+        "WorkshopArt - Steam pack\n\nFormat: {preset}\nFiles: {count}\n\nHow to upload them:\n"
+        "1. Open {url}\n"
+        "2. Open the browser console (F12 -> Console), paste this code and press Enter:\n\n{js}\n\n"
+        "3. Upload each file, give it a title and save (repeat for every part).\n"
+        "4. On your profile: Edit Profile -> Showcase -> put each piece in its slot.\n\n"
+        "Showcases require a Steam account of level 10 or higher.\n",
+        "WorkshopArt - pacote para a Steam\n\nFormato: {preset}\nArquivos: {count}\n\nComo enviá-los:\n"
+        "1. Abra {url}\n"
+        "2. Abra o console do navegador (F12 -> Console), cole este código e pressione Enter:\n\n{js}\n\n"
+        "3. Envie cada arquivo, dê um título e salve (repita para cada parte).\n"
+        "4. No seu perfil: Editar perfil -> Showcase -> coloque cada peça em seu espaço.\n\n"
+        "Os showcases exigem uma conta Steam de nível 10 ou mais.\n"),
 
-    # ---- gui.py  Status bar ----
-    "status_ready": "Listo",
-    "cancel_processing": "Cancelar",
-    "cancelling": "Cancelando...",
-    "cancel_requested_log": "Cancelación solicitada por el usuario",
-
-    # ---- gui.py  Drag & drop ----
-    "unsupported_format_title": "Formato no soportado",
-    "unsupported_format_msg": "Arrastra un archivo MP4, AVI, MOV, MKV, WEBM, GIF, JPG o PNG.",
-
-    # ---- gui.py  Language selector ----
-    "language_label": "Idioma",
-
-    # ---- gui_methods.py  check_dependencies ----
-    "checking_gpu": "Verificando GPU...",
-    "gpu_detected": "GPU detectada: {info}",
-    "gpu_not_detected_status": "No detectada",
-    "gpu_not_detected_log": "GPU no detectada, usando CPU",
-    "ffmpeg_available_status": "Disponible",
-    "ffmpeg_available_log": "FFmpeg disponible",
-    "ffmpeg_not_found_status": "No encontrado",
-    "ffmpeg_not_found_log": "FFmpeg no encontrado - Algunas funciones limitadas",
-    "models_count_status": "{count}/5 modelos",
-    "models_available_log": "{count} modelos disponibles",
-    "models_not_available_status": "No disponibles",
-    "models_not_available_log": "No hay modelos disponibles - Descarga necesaria",
-    "error_checking_deps": "Error verificando dependencias: {e}",
-
-    # ---- gui_methods.py  model info ----
-    "quality_score": "Calidad: {quality}/10 | Velocidad: {speed}/10",
-    "ideal_for": "Ideal para: {uses}",
-
-    # ---- gui_methods.py  select_file ----
-    "filetypes_media": "Archivos multimedia",
-    "filetypes_videos": "Videos",
-    "filetypes_gifs": "GIFs",
-    "filetypes_all": "Todos",
-    "select_file_title": "Seleccionar archivo",
-
-    # ---- gui_methods.py  show_file_info ----
-    "size_label": "Tamaño: {size:.2f} MB",
-    "dimensions_label": "Dimensiones: {w}x{h}",
-    "frames_label": "Frames: {n}",
-    "fps_label": "FPS: {fps:.1f}",
-    "duration_label": "Duración: {dur:.1f}s",
-    "video_info_error": "No se pudo leer info del video",
-    "type_label": "Tipo: {content_type} ({confidence:.0f}%)",
-    "file_selected_log": "Archivo seleccionado: {name}",
-    "file_loaded_status": "Archivo cargado",
-    "error_prefix": "Error: {e}",
-    "error_file_info_log": "Error mostrando info del archivo: {e}",
-
-    # ---- gui_methods.py  analyze_content ----
-    "analyzing_status": "Analizando contenido...",
-    "analyzing_log": "Analizando tipo de contenido...",
-    "type_detected_log": "Tipo detectado: {content_type}",
-    "model_recommended_log": "Modelo recomendado: {model}",
-    "analysis_completed_status": "Análisis completado",
-    "analysis_error_log": "Error analizando contenido: {e}",
-    "analysis_error_status": "Error en análisis",
-
-    # ---- gui_methods.py  download_models ----
-    "preparing_download_status": "Preparando descarga...",
-    "download_header_log": "=== DESCARGA DE MODELOS ===",
-    "downloading_models_log": "Descargando 5 modelos de Real-ESRGAN...",
-    "download_completed_log": "Descarga completada",
-    "models_downloaded_status": "¡Modelos descargados!",
-    "download_completed_header_log": "=== DESCARGA COMPLETADA ===",
-    "models_available_count_log": "Modelos disponibles: {count}/5",
-    "download_success_title": "¡Éxito!",
-    "download_success_msg": (
-        "¡Descarga completada!\n\n"
-        "{check} {count} modelos disponibles\n"
-        "Ubicación: {location}\n\n"
-        "¡Ya puedes procesar con IA!"
-    ),
-    "download_error_status": "Error en descarga",
-    "download_error_log": "Error descargando modelos",
-    "download_error_title": "Error",
-    "download_error_msg": (
-        "Error descargando modelos.\n\n"
-        "Posibles causas:\n"
-        "- Sin conexión a internet\n"
-        "- Firewall bloqueando GitHub\n"
-        "- Espacio insuficiente en disco\n\n"
-        "Intenta descargar manualmente desde:\n"
-        "github.com/xinntao/Real-ESRGAN/releases"
-    ),
-    "confirm_download_title": "Confirmar Descarga",
-    "confirm_download_msg": (
-        "¿Descargar todos los modelos de IA?\n\n"
-        "5 modelos especializados:\n"
-        "- Anime Video v3 (gaming/anime)\n"
-        "- x4plus (uso general)\n"
-        "- x4plus Anime (máxima calidad)\n"
-        "- ESRNet (fotos realistas)\n"
-        "- x2plus (rápido)\n\n"
-        "~200 MB de descarga\n"
-        "2-5 minutos según conexión\n\n"
-        "¿Continuar?"
-    ),
-
-    # ---- gui_methods.py  process_full_ai ----
-    "warning_title": "Advertencia",
-    "select_file_first": "Primero selecciona un archivo",
-    "select_model_first": "Selecciona un modelo de IA",
-    "starting_ai_status": "Iniciando procesamiento con IA...",
-    "ai_header_log": "=== PROCESAMIENTO CON IA ===",
-    "file_log": "Archivo: {name}",
-    "model_log": "Modelo: {model}",
-    "processing_mode_log": "Modo de procesamiento: {mode}",
-    "preparing_file_status": "Preparando archivo...",
-    "converting_video_log": "Convirtiendo video a GIF...",
-    "convert_error": "Error convirtiendo video a GIF",
-    "video_converted_log": "Video convertido: {name}",
-    "extracting_frames_status": "Extrayendo frames...",
-    "extracting_frames_log": "Extrayendo frames...",
-    "extract_error": "Error extrayendo frames",
-    "frames_extracted_log": "Frames extraídos: {count}, FPS: {fps:.1f}",
-    "applying_ai_status": "Aplicando IA con {mode}...",
-    "upscale_error": "Error en el upscaling con IA",
-    "ai_applied_log": "IA aplicada: {count} frames mejorados",
-    "empty_frames_error": "Lista de frames upscaleados está vacía",
-    "invalid_frame_log": "Frame no válido: {path}",
-    "no_valid_frames_error": "No hay frames válidos después del upscaling",
-    "valid_frames_log": "Frames válidos: {count}",
-    "color_prep_status": "Preparando mejoras de color...",
-    "color_prep_log": "Mejoras de color se aplicarán al GIF final...",
-    "creating_gif_status": "Creando GIF final...",
-    "gif_created_log": "GIF base creado correctamente: {size:.2f} MB",
-    "applying_colors_status": "Aplicando mejoras de color...",
-    "applying_colors_log": "Aplicando mejoras de color...",
-    "gif_valid_log": "GIF válido: {count} frames",
-    "gif_invalid_warning": "GIF no válido para mejoras: {e}",
-    "gif_corrupt_error": "GIF base corrupto: {e}",
-    "color_timeout_warning": "Timeout en mejoras de color (>60s)",
-    "continue_no_colors": "Continuando sin mejoras de color...",
-    "color_error_warning": "Error en mejoras: {e}",
-    "colors_applied_log": "Mejoras aplicadas: {size:.2f} MB",
-    "no_colors_needed": "No se requirieron mejoras de color",
-    "skip_colors_warning": "Saltando mejoras de color: {e}",
-    "processing_completed_status": "¡Procesamiento completado!",
-    "processing_completed_header": "=== PROCESAMIENTO COMPLETADO ===",
-    "final_file_log": "Archivo final: {name}",
-    "size_log": "Tamaño: {size:.2f} MB",
-    "generating_report_log": "Generando reporte de calidad...",
-    "report_generated_log": "Reporte de calidad generado",
-    "report_failed_log": "No se pudo generar reporte de calidad",
-    "report_system_unavailable": "Sistema de reportes no disponible",
-    "report_error_log": "Error en reporte de calidad: {e}",
-    "success_title": "¡Éxito!",
-    "ai_success_msg": (
-        "¡Procesamiento completado exitosamente!\n\n"
-        "Archivo: {name}\n"
-        "Tamaño: {size:.2f} MB\n"
-        "Modelo: {model}\n"
-        "Procesado con: {mode}\n\n"
-        "Mejoras aplicadas: {enhanced}\n"
-        "Se abrirá el reporte de calidad...\n"
-        "¡Listo para fragmentar para Steam!"
-    ),
-    "critical_error_log": "ERROR CRÍTICO: {e}",
-    "error_title": "Error",
-    "ai_error_msg": (
-        "Error en procesamiento con IA:\n\n{e}\n\n"
-        "Posibles causas:\n"
-        "- Modelo de IA no disponible\n"
-        "- GPU no compatible\n"
-        "- Frames de entrada corruptos\n"
-        "- Memoria insuficiente\n\n"
-        "Soluciones:\n"
-        "- Verifica que el modelo esté descargado\n"
-        "- Cambia a modo CPU\n"
-        "- Usa un archivo más pequeño\n"
-        "- Reinicia WorkshopArt"
-    ),
-    "gif_error_msg": (
-        "Error creando GIF final:\n\n{e}\n\n"
-        "Posibles causas:\n"
-        "- Frames de IA corruptos\n"
-        "- Memoria insuficiente\n"
-        "- Archivo original demasiado largo\n\n"
-        "Soluciones:\n"
-        "- Usar archivo más corto (<10s)\n"
-        "- Cerrar otras aplicaciones\n"
-        "- Reiniciar WorkshopArt"
-    ),
-    "generic_error_msg": "Error en procesamiento:\n\n{e}",
-    "temp_cleaned_log": "Archivos temporales limpiados",
-    "temp_clean_warning": "Advertencia limpiando temporales: {e}",
-    "confirm_process_title": "Confirmar Procesamiento",
-    "confirm_process_msg": (
-        "¿Procesar archivo con IA?\n\n"
-        "Archivo: {name}\n"
-        "Modelo: {model}\n"
-        "Procesamiento: {mode}\n"
-        "Calidad: {quality}\n"
-        "Tiempo estimado: 2-10 minutos\n\n"
-        "Mejoras de color: {enhanced}\n"
-        "Se generará reporte de calidad\n\n"
-        "¿Continuar?"
-    ),
-    "yes_label": "Sí",
-    "no_label": "No",
-
-    # ---- gui_methods.py  enhance_colors_only ----
-    "enhancing_colors_status": "Mejorando colores...",
-    "applying_color_log": "Aplicando mejoras de color...",
-    "contrast_log": "Contraste: {val:.1f}",
-    "saturation_log": "Saturación: {val:.1f}",
-    "colors_improved_status": "¡Colores mejorados!",
-    "enhanced_file_log": "Archivo mejorado: {name}",
-    "colors_success_msg": (
-        "¡Colores mejorados exitosamente!\n\n"
-        "Archivo: {name}\n"
-        "Contraste: {contrast:.1f}\n"
-        "Saturación: {saturation:.1f}"
-    ),
-
-    # ---- gui_methods.py  convert_mp4_to_gif ----
-    "not_video_warning": (
-        "El archivo seleccionado no es un video.\n"
-        "Formatos soportados: MP4, AVI, MOV, MKV, WEBM"
-    ),
-    "convert_window_title": "Convertir Video a GIF",
-    "conversion_title": "Conversión Video a GIF",
-    "selected_file_label": "Archivo seleccionado",
-    "file_label": "Archivo: {name}",
-    "video_info_label": "Duración: {dur:.1f}s | FPS: {fps:.1f} | {size}",
-    "video_read_error": "No se pudo leer info del video",
-    "fps_for_gif": "FPS para el GIF",
-    "custom_fps": "FPS personalizado:",
-    "quality_label": "Calidad",
-    "quality_fast": "Rápido",
-    "quality_balanced_label": "Balanceado",
-    "quality_high_label": "Alta calidad",
-    "options_label": "Opciones",
-    "resize_steam": "Redimensionar a 638x354 (Steam)",
-    "auto_enhance_colors": "Mejorar colores automáticamente",
-    "estimated_size": "Tamaño estimado: ~{size:.1f} MB",
-    "estimated_size_unavailable": "Tamaño estimado: No disponible",
-    "estimated_size_calculating": "Tamaño estimado: Calculando...",
-    "convert_to_gif_btn": "Convertir a GIF",
-    "cancel_btn": "Cancelar",
-    "converting_status": "Convirtiendo video a GIF...",
-    "conversion_header_log": "=== CONVERSIÓN MP4 -> GIF ===",
-    "fps_log": "FPS: {fps}",
-    "quality_log": "Calidad: {quality}",
-    "resize_log": "Redimensionar: {resize}",
-    "conversion_completed_status": "Conversión completada",
-    "conversion_completed_full_status": "¡Conversión completada!",
-    "gif_created_file_log": "GIF creado: {name}",
-    "final_size_log": "Tamaño final: {size:.2f} MB",
-    "conversion_success_title": "¡Conversión Exitosa!",
-    "conversion_success_msg": (
-        "¡Video convertido a GIF!\n\n"
-        "Archivo: {name}\n"
-        "FPS: {fps}\n"
-        "Tamaño: {size:.2f} MB\n"
-        "Mejoras: {enhanced}\n\n"
-        "Listo para procesar con IA o fragmentar"
-    ),
-    "conversion_failed": "No se pudo convertir el video",
-    "conversion_error_status": "Error en conversión",
-    "conversion_error_msg": "Error convirtiendo video:\n\n{e}",
-
-    # ---- gui_methods.py  enhance_animation ----
-    "enhance_anim_window_title": "Mejorar Animación",
-    "enhance_anim_title": "Mejora de Animación",
-    "interpolation_60fps": "Interpolación a 60 FPS",
-    "interpolation_desc": "Duplica/triplica frames para mayor fluidez",
-    "smooth_motion": "Suavizado de Movimiento",
-    "smooth_desc": "Aplica motion blur suave",
-    "optimize_playback": "Optimizar Reproducción",
-    "optimize_desc": "Normaliza timing para reproducción estable",
-    "apply_btn": "Aplicar",
-    "interpolating_status": "Interpolando a 60 FPS...",
-    "interpolation_header_log": "=== INTERPOLACIÓN A 60 FPS ===",
-    "interpolation_success": "¡Interpolación a 60 FPS completada!",
-    "smoothing_status": "Aplicando suavizado...",
-    "smoothing_header_log": "=== SUAVIZADO DE MOVIMIENTO ===",
-    "smoothing_success": "¡Efecto de suavizado aplicado!",
-    "optimizing_status": "Optimizando reproducción...",
-    "optimizing_header_log": "=== OPTIMIZACIÓN DE REPRODUCCIÓN ===",
-    "optimizing_success": "¡Reproducción optimizada!",
-    "enhancement_completed_status": "¡Mejora completada!",
-    "enhanced_file_success_log": "Archivo mejorado: {name}",
-    "no_changes_status": "No se requieren cambios",
-    "already_optimized_title": "Información",
-    "already_optimized_msg": "El archivo ya está optimizado o no requiere cambios.",
-    "enhancement_error_msg": "Error en mejora: {e}",
-
-    # ---- gui_methods.py  optimization dialog ----
-    "optimization_needed_title": "Optimización Recomendada",
-    "optimization_needed_msg": (
-        "OPTIMIZACIÓN NECESARIA\n\n"
-        "- Fragmentos pequeños: {small}/5\n"
-        "- Fragmentos grandes: {large}/5\n\n"
-    ),
-    "small_fragments_warning": (
-        "Los fragmentos pequeños pueden ser rechazados por Steam.\n"
-        "La optimización aprovechará mejor el espacio disponible.\n\n"
-    ),
-    "optimization_question": (
-        "¿Aplicar optimización automática?\n\n"
-        "SÍ: Mejora la calidad automáticamente\n"
-        "NO: Mantiene fragmentos como están"
-    ),
-
-    # ---- gui_methods.py  fragment reports ----
-    "fragment_completed_title": "Fragmentación Completada",
-    "fragment_completed_msg": (
-        "¡FRAGMENTACIÓN COMPLETADA EXITOSAMENTE!\n\n"
-        "ESTADÍSTICAS FINALES:\n"
-        "Fragmentos óptimos: {optimal}/5\n"
-        "Fragmentos pequeños: {small}/5\n"
-        "Fragmentos grandes: {large}/5\n\n"
-        "ARCHIVOS CREADOS:\n"
-    ),
-    "fragment_total": "Total: {total:.2f} MB",
-    "fragment_perfect": "¡PERFECTO! Todos los fragmentos están en el rango óptimo.\nSteam Workshop obtendrá la máxima calidad posible.",
-    "fragment_excellent": "¡EXCELENTE! La mayoría de fragmentos están optimizados.",
-    "fragment_next_step": (
-        "SIGUIENTE PASO:\n"
-        "1. Sube los 5 archivos a Steam Workshop\n"
-        "2. Abre la consola del navegador (F12)\n"
-        "3. Ejecuta estos comandos:\n\n"
-    ),
-    "fragment_ready": "¡Listo para subir a Steam Workshop!",
-
-    # ---- gui_methods.py  show_help ----
-    "help_window_title": "Ayuda - WorkshopArt",
-    "close_btn": "Cerrar",
-    "help_text": """WORKSHOPART v1.0 - GUÍA COMPLETA
-
-    PASO 1: SELECCIONAR ARCHIVO
-    - Haz clic en "Seleccionar Archivo"
-    - Formatos soportados: MP4, AVI, MOV, GIF
-    - La detección automática sugerirá el mejor modelo de IA
-
-    PASO 2: CONFIGURAR IA
-    - Si es la primera vez, descarga los modelos (botón "Descargar")
-    - El modelo se selecciona automáticamente según tu contenido
-    - Elige GPU para velocidad o CPU para compatibilidad
-
-    PASO 3: PROCESAR
-    - Procesar con IA: Mejora todo el archivo con IA 4x (mejor calidad)
-    - Solo Colores: Ajusta contraste/saturación sin IA (más rápido)
-    - Mejorar Animación: Interpola frames para mayor fluidez
-
-    PASO 4: FRAGMENTAR
-    - Divide el GIF en 5 partes para Steam Workshop
-    - Cada parte será ~4.6 MB (ajuste automático)
-    - Redimensiona a 638x354 px automáticamente
-
-    PASO 5: SUBIR A STEAM
-    1. Ve a Steam Workshop Uploader
-    2. Sube los 5 archivos .gif creados
-    3. Abre la consola del navegador (F12)
-    4. Ejecuta los comandos mostrados
-
-    CONSEJOS:
-    - Usa "Auto-detectar" para mejores resultados automáticos
-    - GPU es 5-10x más rápido que CPU
-    - Para videos largos, recorta a 5-10 segundos primero
-    - Ajusta colores DESPUÉS de aplicar IA para mejor resultado
-
-    MODELOS DE IA DISPONIBLES:
-    - Anime Video v3: Perfecto para gaming/anime (RECOMENDADO)
-    - x4plus: Uso general, muy versátil
-    - x4plus Anime: Máxima calidad para ilustraciones
-    - ESRNet: Fotos realistas y retratos
-    - x2plus: Escalado 2x, el más rápido
-    - Real-CUGAN: Especializado en anime (Bilibili)
-
-    SOLUCIÓN DE PROBLEMAS:
-    - Si la GPU no se detecta: Actualiza drivers
-    - Si falla la fragmentación: Instala FFmpeg
-    - Si los modelos no descargan: Verifica firewall/antivirus
-    - Si el proceso es lento: Cierra otras aplicaciones
-
-    Tutorial completo en video:
-    youtube.com/watch?v=BQ-9E7sFWc0""",
-
-    # ---- gui_methods.py  on_closing / run ----
-    "app_closed_log": "Aplicación cerrada correctamente",
-    "welcome_log": "WorkshopArt v2.0 iniciado",
-    "welcome_modular_log": "Versión modular con todas las funciones",
-    "welcome_start_log": "Selecciona un archivo para comenzar",
-    "tutorial_opened_log": "Tutorial de Steam abierto",
-    "tutorial_error_log": "Error abriendo tutorial: {e}",
-
-    # ---- gui_methods.py  fragment_for_steam ----
-    "fragment_options_title": "Opciones de Fragmentación",
-    "fragment_options_msg": (
-        "¿Cómo quieres fragmentar {name}?\n\n"
-        "SÍ: Ver preview primero\n"
-        "NO: Fragmentar directamente\n\n"
-        "Recomendado: Ver preview primero"
-    ),
-    "preview_error_title": "Error en Preview",
-    "preview_error_msg": "Error creando preview:\n{e}\n\nFragmentando directamente...",
-
-    # ---- gui_methods.py  fragment_for_steam_direct ----
-    "starting_fragment_status": "Iniciando fragmentación...",
-    "direct_fragment_header_log": "=== FRAGMENTACIÓN DIRECTA ===",
-    "converting_to_gif_log": "Convirtiendo a GIF...",
-    "converting_to_gif_status": "Convirtiendo a GIF...",
-    "convert_to_gif_error": "Error convirtiendo a GIF",
-    "fragmenting_status": "Fragmentando en 5 partes...",
-    "fragmenting_log": "Fragmentando para Steam Workshop...",
-    "fragment_success_status": "¡Fragmentación completada!",
-    "fragment_success_log": "Fragmentación completada exitosamente",
-    "created_log": "Creado: {name} ({size:.2f} MB)",
-    "fragment_success_title": "¡Fragmentación Exitosa!",
-    "fragment_success_msg": (
-        "¡Fragmentación completada!\n\n"
-        "Archivos creados:\n{files}\n\n"
-        "Tamaño total: {total:.2f} MB\n\n"
-        "¡Listos para subir a Steam Workshop!"
-    ),
-    "fragment_failed": "La fragmentación falló",
-    "fragment_error_status": "Error en fragmentación",
-    "fragment_error_msg": "Error en fragmentación:\n\n{e}",
-
-    # ---- gui_methods.py  fragment_for_steam_ffmpeg_only ----
-    "ffmpeg_fragment_header_log": "=== FRAGMENTACIÓN STEAM (SOLO FFMPEG) ===",
-    "verifying_file_status": "Verificando archivo...",
-    "analyzing_fragments_status": "Analizando fragmentos...",
-    "fragment_status_optimal": "ÓPTIMO",
-    "fragment_status_small": "PEQUEÑO",
-    "fragment_not_created": "No se creó fragmento {i}",
-    "optimizing_ffmpeg_status": "Optimizando con FFmpeg...",
-    "optimizing_fragments_log": "Optimizando {count} fragmentos...",
-    "optimizing_fragment_log": "Optimizando fragmento {part}...",
-    "optimized_log": "Optimizado: {size:.2f} MB",
-    "not_fully_optimized_log": "No se pudo optimizar completamente",
-    "optimized_count_log": "Optimizados: {done}/{total}",
-    "ffmpeg_confirm_title": "Fragmentación FFmpeg",
-    "ffmpeg_confirm_msg": (
-        "¿Fragmentar usando solo FFmpeg?\n\n"
-        "{name}\n"
-        "Optimización automática\n"
-        "Sin procesamiento IA (más rápido)\n\n"
-        "¿Continuar?"
-    ),
-
-    # ---- gui_methods.py  optimization internal ----
-    "current_size_log": "   Tamaño actual: {current:.2f} MB, objetivo: {target:.2f} MB",
-    "ffmpeg_not_available": "   FFmpeg no disponible",
-    "trying_strategies_log": "   Probando {count} estrategias FFmpeg...",
-    "strategy_result_log": "   Estrategia FFmpeg {i}: {size:.2f} MB",
-    "strategy_success_log": "   Estrategia FFmpeg {i} ÉXITO: {old:.2f} -> {new:.2f} MB",
-    "best_result_log": "   Mejor resultado hasta ahora: {size:.2f} MB",
-    "strategy_error_log": "   Estrategia {i} error: {msg}",
-    "strategy_timeout_log": "   Estrategia {i} timeout (>60s)",
-    "strategy_exception_log": "   Error estrategia {i}: {msg}",
-    "ffmpeg_best_result_log": "   FFmpeg mejor resultado: {old:.2f} -> {new:.2f} MB (+{diff:.2f})",
-    "ffmpeg_insufficient_log": "   Mejora FFmpeg insuficiente: +{diff:.2f} MB",
-    "ffmpeg_no_strategy_log": "   FFmpeg: ninguna estrategia alcanzó objetivo",
-    "ffmpeg_general_error_log": "   Error general FFmpeg: {e}",
-    # --- UI v2.0 (workflow por pasos) ---
-    "step_file": "Archivo",
-    "step_process": "Procesar",
-    "step_fragment": "Fragmentar",
-    "step_upload": "Subir",
-    "analyze_now": "Analizar ahora",
-    "recent_files": "Recientes:",
-    "live_preview": "Preview en vivo",
-    "color_adjustments": "Ajustes de color",
-    "preview_no_file": "Carga un GIF o imagen para ver el preview",
-    "fragment_now": "Fragmentar",
-    "open_preview": "Preview de fragmentos",
-    "tip_open_preview": "Ver como quedara fragmentado antes de cortar",
-    "pipeline_one_click": "⚡ Pipeline 1-clic",
-    "tip_pipeline": "Todo automatico: IA + colores + fragmentar + optimizar",
-    "fragments_ready": "Fragmentos generados",
-    "refresh_fragments": "Actualizar lista",
-    "manual_upload": "Subida manual",
-    "open_fragments_folder": "Abrir carpeta",
-    "copy_js": "Copiar JS",
-    "open_workshop": "Abrir Workshop",
-    "upload_tool": "Upload Tool",
-    "validate_profile": "Validar perfil",
-    "export_zip": "Export ZIP",
-    "tip_validate_profile": "Comprobar tu perfil Steam y nivel para showcases",
-    "tip_export_zip": "Empaquetar fragmentos + instrucciones en un ZIP",
-    "tip_open_folder": "Abrir la carpeta de fragmentos del archivo actual",
-    "tip_copy_js": "Copiar snippet para la consola del navegador",
-    "tip_open_workshop": "Abrir la pagina de subida de Steam",
-    "tip_upload_tool": "Subida automatica",
-    "no_file_yet": "Carga un archivo en el paso 1.",
-    "no_fragments_yet": "Aun no hay fragmentos: usa el paso 3.",
-    "font_scale": "Tamano de texto",
-    "restart_for_scale": "El nuevo tamano de texto se aplicara al reiniciar la aplicacion.",
-    "tip_font_scale": "Tamano del texto (requiere reiniciar)",
-    "tip_help": "Guia completa (F1)",
-    "is_anime_question": "¿Tu contenido es anime?",
-    "anime_yes": "Sí, anime",
-    "anime_no": "No",
-    "tip_is_anime": "Elige el tipo de contenido para recomendar el mejor modelo de IA",
+    # ---- Help window -----------------------------------------------------------
+    "help_window_title": ("Ayuda - WorkshopArt", "Help - WorkshopArt", "Ajuda - WorkshopArt"),
+    "help_text": (
+        "WorkshopArt v{version} · Guía rápida\n\n"
+        "WorkshopArt convierte tus videos, GIF e imágenes en piezas listas para los showcases del "
+        "perfil de Steam: respeta el límite de 5 MB por archivo, mantiene las partes sincronizadas "
+        "y aplica el truco del último byte para que Steam las muestre a tamaño completo.\n\n"
+        "1 · ARCHIVO\n"
+        "• Arrastra un archivo a la ventana o pulsa Seleccionar archivo (Ctrl+O).\n"
+        "• Acepta GIF, videos (MP4, MOV, MKV, WEBM, AVI...) e imágenes (JPG, PNG, WEBP).\n"
+        "• Indica si tu contenido es anime: sirve para elegir el mejor modelo de IA.\n\n"
+        "2 · PROCESAR (opcional)\n"
+        "• Procesar con IA: mejora la resolución con Real-ESRGAN o Real-CUGAN (mejor con GPU).\n"
+        "• Solo colores: aplica contraste, saturación, vibrance, nitidez y temperatura; "
+        "el preview muestra el resultado en vivo.\n"
+        "• Video → GIF: convierte un video eligiendo FPS, recorte y tamaño.\n"
+        "• Mejorar animación: interpola frames con RIFE para una animación más fluida.\n\n"
+        "3 · FRAGMENTAR\n"
+        "• Elige el formato del showcase y pulsa Fragmentar. Todas las piezas comparten FPS y "
+        "calidad para que se vean sincronizadas.\n"
+        "• Preview de fragmentos: muestra cómo quedará el corte antes de hacerlo.\n"
+        "• Pipeline 1-clic: IA + colores + fragmentar, todo seguido.\n"
+        "• Optimizar ≤ 5 MB: reduce GIF que ya tengas sin desincronizarlos.\n"
+        "Los resultados se guardan en <nombre>_workshop/ junto al archivo original "
+        "(los fragmentos, en la subcarpeta fragmentos).\n\n"
+        "4 · SUBIR\n"
+        "• Upload Tool: sube los fragmentos automáticamente con tu sesión de Steam en "
+        "Firefox (Chrome y Edge ya no dejan leerla) o con un archivo steam_cookies.json.\n"
+        "• Subida manual: abre la página de subida, pega en la consola (F12) el código de "
+        "Copiar JS (ya adaptado a tu formato), sube cada archivo y guarda.\n"
+        "• Validar perfil: comprueba que tu perfil es público y de nivel 10 o más, necesario "
+        "para los showcases.\n\n"
+        "ATAJOS\n"
+        "Ctrl+O abrir archivo · Ctrl+1...4 ir a cada paso · F1 esta ayuda\n\n"
+        "PROBLEMAS FRECUENTES\n"
+        "• GPU no detectada: actualiza los drivers de la tarjeta gráfica.\n"
+        "• La IA falla con la GPU: desactiva «Usar GPU» y vuelve a intentarlo.\n"
+        "• Un formato no cabe en 5 MB: recorta la duración del clip.\n"
+        "• Steam rechaza la subida: pega el código de consola antes de guardar.\n"
+        "• Detalles técnicos: SteamWorkshopAppData/logs/runtime.log",
+        "WorkshopArt v{version} · Quick guide\n\n"
+        "WorkshopArt turns your videos, GIFs and images into pieces ready for Steam profile "
+        "showcases: it respects the 5 MB limit per file, keeps the parts in sync and applies "
+        "the last-byte trick so Steam shows them at full size.\n\n"
+        "1 · FILE\n"
+        "• Drop a file on the window or click Select file (Ctrl+O).\n"
+        "• Accepts GIFs, videos (MP4, MOV, MKV, WEBM, AVI...) and images (JPG, PNG, WEBP).\n"
+        "• Say whether your content is anime: it picks the best AI model.\n\n"
+        "2 · PROCESS (optional)\n"
+        "• Process with AI: improves the resolution with Real-ESRGAN or Real-CUGAN (best with a GPU).\n"
+        "• Colors only: applies contrast, saturation, vibrance, sharpness and temperature; "
+        "the preview shows the result live.\n"
+        "• Video → GIF: converts a video choosing FPS, trim and size.\n"
+        "• Smooth animation: interpolates frames with RIFE for a smoother animation.\n\n"
+        "3 · FRAGMENT\n"
+        "• Choose the showcase format and click Fragment. All pieces share FPS and quality so "
+        "they play in sync.\n"
+        "• Fragment preview: shows how the cut will look before doing it.\n"
+        "• 1-click pipeline: AI + colors + fragment, in one go.\n"
+        "• Optimize ≤ 5 MB: shrinks GIFs you already have without desyncing them.\n"
+        "Results are saved in <name>_workshop/ next to the original file (the fragments in "
+        "its fragmentos subfolder).\n\n"
+        "4 · UPLOAD\n"
+        "• Upload Tool: uploads the fragments automatically using your Steam session in "
+        "Firefox (Chrome and Edge no longer allow reading it) or a steam_cookies.json file.\n"
+        "• Manual upload: open the upload page, paste the Copy JS code (already matched to "
+        "your format) in the console (F12), upload each file and save.\n"
+        "• Check profile: checks that your profile is public and level 10 or higher, which "
+        "showcases require.\n\n"
+        "SHORTCUTS\n"
+        "Ctrl+O open file · Ctrl+1...4 go to each step · F1 this help\n\n"
+        "TROUBLESHOOTING\n"
+        "• GPU not detected: update your graphics drivers.\n"
+        "• The AI fails on the GPU: turn off \"Use GPU\" and try again.\n"
+        "• A format does not fit in 5 MB: trim the clip.\n"
+        "• Steam rejects the upload: paste the console code before saving.\n"
+        "• Technical details: SteamWorkshopAppData/logs/runtime.log",
+        "WorkshopArt v{version} · Guia rápido\n\n"
+        "O WorkshopArt transforma seus vídeos, GIFs e imagens em peças prontas para os showcases "
+        "do perfil da Steam: respeita o limite de 5 MB por arquivo, mantém as partes "
+        "sincronizadas e aplica o truque do último byte para que a Steam as mostre em tamanho "
+        "completo.\n\n"
+        "1 · ARQUIVO\n"
+        "• Arraste um arquivo para a janela ou clique em Selecionar arquivo (Ctrl+O).\n"
+        "• Aceita GIFs, vídeos (MP4, MOV, MKV, WEBM, AVI...) e imagens (JPG, PNG, WEBP).\n"
+        "• Diga se seu conteúdo é anime: isso escolhe o melhor modelo de IA.\n\n"
+        "2 · PROCESSAR (opcional)\n"
+        "• Processar com IA: melhora a resolução com Real-ESRGAN ou Real-CUGAN (melhor com GPU).\n"
+        "• Só cores: aplica contraste, saturação, vibrância, nitidez e temperatura; o preview "
+        "mostra o resultado ao vivo.\n"
+        "• Vídeo → GIF: converte um vídeo escolhendo FPS, corte e tamanho.\n"
+        "• Suavizar animação: interpola frames com RIFE para uma animação mais fluida.\n\n"
+        "3 · FRAGMENTAR\n"
+        "• Escolha o formato do showcase e clique em Fragmentar. Todas as peças compartilham FPS "
+        "e qualidade para ficarem sincronizadas.\n"
+        "• Preview dos fragmentos: mostra como ficará o corte antes de fazê-lo.\n"
+        "• Pipeline 1 clique: IA + cores + fragmentar, tudo seguido.\n"
+        "• Otimizar ≤ 5 MB: reduz GIFs que você já tem sem dessincronizá-los.\n"
+        "Os resultados ficam em <nome>_workshop/ ao lado do arquivo original (os fragmentos na "
+        "subpasta fragmentos).\n\n"
+        "4 · ENVIAR\n"
+        "• Upload Tool: envia os fragmentos automaticamente com a sua sessão da Steam no "
+        "Firefox (Chrome e Edge não permitem mais lê-la) ou com um arquivo steam_cookies.json.\n"
+        "• Envio manual: abra a página de envio, cole no console (F12) o código de Copiar JS "
+        "(já adaptado ao seu formato), envie cada arquivo e salve.\n"
+        "• Validar perfil: verifica se seu perfil é público e de nível 10 ou mais, exigido "
+        "pelos showcases.\n\n"
+        "ATALHOS\n"
+        "Ctrl+O abrir arquivo · Ctrl+1...4 ir para cada etapa · F1 esta ajuda\n\n"
+        "PROBLEMAS COMUNS\n"
+        "• GPU não detectada: atualize os drivers da placa de vídeo.\n"
+        "• A IA falha na GPU: desative \"Usar GPU\" e tente de novo.\n"
+        "• Um formato não cabe em 5 MB: reduza a duração do clipe.\n"
+        "• A Steam recusa o envio: cole o código do console antes de salvar.\n"
+        "• Detalhes técnicos: SteamWorkshopAppData/logs/runtime.log"),
 }
 
-EN = {
-    # ---- gui.py  Sidebar ----
-    "app_title": "WorkshopArt",
-    "version": "v1.0",
-    "open_file": "Open file",
-    "process_ai": "Process with AI",
-    "colors_only": "Colors only",
-    "mp4_to_gif": "MP4 to GIF",
-    "enhance_animation": "Enhance animation",
-    "fragment_steam": "Fragment...",
-    "optimize_size": "Optimize to 5MB",
-    "tip_open_file": "Load a video, GIF or image (MP4, AVI, MOV, GIF, JPG, PNG)",
-    "tip_process_ai": "4x upscale with AI and enhance colors",
-    "tip_colors_only": "Enhance contrast and saturation without upscaling",
-    "tip_mp4_to_gif": "Convert an MP4 video to an animated GIF",
-    "tip_enhance_animation": "Improve FPS and animation smoothness",
-    "tip_fragment_steam": "Pick format: Workshop, Artwork, Screenshot, Panorama, Grids...",
-    "tip_optimize_size": "Shrink fragments below the 5MB limit while preserving max quality",
-    "download_models": "Download AI models",
-    "tip_download_models": "Download Real-ESRGAN and Real-CUGAN models (~200 MB)",
-    "help": "Help",
-    "gpu_label": "GPU: ...",
-    "ffmpeg_label": "FFmpeg: ...",
-    "models_label": "Models: ...",
+_LANGS = ("ES", "EN", "PT")
+_current = 0  # index into _LANGS
 
-    # ---- gui.py  Center ----
-    "drop_here": "Drop a file here",
-    "supported_formats": "MP4 / AVI / MOV / GIF / JPG / PNG",
-    "select_file_btn": "Select file",
-    "log_title": "Log",
-
-    # ---- gui.py  Right panel ----
-    "config_title": "Settings",
-    "ai_model": "AI Model",
-    "auto_detect_model": "Auto-detect model",
-    "processing_section": "Processing",
-    "use_gpu": "Use GPU",
-    "tip_use_gpu": "~10x faster processing with a compatible GPU",
-    "quality_section": "Quality",
-    "quality_high": "High",
-    "quality_balanced": "Balanced",
-    "visual_enhancements": "Visual enhancements",
-    "enhance_colors": "Enhance colors",
-    "enhance_animation_check": "Enhance animation",
-    "contrast": "Contrast",
-    "saturation": "Saturation",
-    "vibrance": "Vibrance",
-    "sharpness": "Sharpness",
-    "temperature": "Color temperature",
-    "model_info": "Model info",
-    "steam_workshop": "Steam Workshop",
-    "steam_instructions": (
-        "1. Fragment your GIF\n"
-        "2. Upload all 5 files\n"
-        "3. F12 console > JS commands\n"
-        "4. Publish to your profile"
-    ),
-    "view_tutorial": "View tutorial",
-
-    # ---- gui.py  Hardware requirements ----
-    "hw_requirements": "AI Requirements",
-    "hw_info": (
-        "GPU: NVIDIA / AMD with Vulkan\n"
-        "(GTX 1060+ / RX 570+)\n"
-        "RAM: 8 GB minimum\n"
-        "VRAM: 2 GB minimum\n"
-        "No GPU: CPU processing\n"
-        "(much slower, ~10x)"
-    ),
-
-    # ---- gui.py  Status bar ----
-    "status_ready": "Ready",
-    "cancel_processing": "Cancel",
-    "cancelling": "Cancelling...",
-    "cancel_requested_log": "Cancellation requested by user",
-
-    # ---- gui.py  Drag & drop ----
-    "unsupported_format_title": "Unsupported format",
-    "unsupported_format_msg": "Drop an MP4, AVI, MOV, MKV, WEBM, GIF, JPG or PNG file.",
-
-    # ---- gui.py  Language selector ----
-    "language_label": "Language",
-
-    # ---- gui_methods.py  check_dependencies ----
-    "checking_gpu": "Checking GPU...",
-    "gpu_detected": "GPU detected: {info}",
-    "gpu_not_detected_status": "Not detected",
-    "gpu_not_detected_log": "GPU not detected, using CPU",
-    "ffmpeg_available_status": "Available",
-    "ffmpeg_available_log": "FFmpeg available",
-    "ffmpeg_not_found_status": "Not found",
-    "ffmpeg_not_found_log": "FFmpeg not found - Some features limited",
-    "models_count_status": "{count}/5 models",
-    "models_available_log": "{count} models available",
-    "models_not_available_status": "Not available",
-    "models_not_available_log": "No models available - Download required",
-    "error_checking_deps": "Error checking dependencies: {e}",
-
-    # ---- gui_methods.py  model info ----
-    "quality_score": "Quality: {quality}/10 | Speed: {speed}/10",
-    "ideal_for": "Best for: {uses}",
-
-    # ---- gui_methods.py  select_file ----
-    "filetypes_media": "Media files",
-    "filetypes_videos": "Videos",
-    "filetypes_gifs": "GIFs",
-    "filetypes_all": "All",
-    "select_file_title": "Select file",
-
-    # ---- gui_methods.py  show_file_info ----
-    "size_label": "Size: {size:.2f} MB",
-    "dimensions_label": "Dimensions: {w}x{h}",
-    "frames_label": "Frames: {n}",
-    "fps_label": "FPS: {fps:.1f}",
-    "duration_label": "Duration: {dur:.1f}s",
-    "video_info_error": "Could not read video info",
-    "type_label": "Type: {content_type} ({confidence:.0f}%)",
-    "file_selected_log": "File selected: {name}",
-    "file_loaded_status": "File loaded",
-    "error_prefix": "Error: {e}",
-    "error_file_info_log": "Error showing file info: {e}",
-
-    # ---- gui_methods.py  analyze_content ----
-    "analyzing_status": "Analyzing content...",
-    "analyzing_log": "Analyzing content type...",
-    "type_detected_log": "Detected type: {content_type}",
-    "model_recommended_log": "Recommended model: {model}",
-    "analysis_completed_status": "Analysis completed",
-    "analysis_error_log": "Error analyzing content: {e}",
-    "analysis_error_status": "Analysis error",
-
-    # ---- gui_methods.py  download_models ----
-    "preparing_download_status": "Preparing download...",
-    "download_header_log": "=== MODEL DOWNLOAD ===",
-    "downloading_models_log": "Downloading 5 Real-ESRGAN models...",
-    "download_completed_log": "Download completed",
-    "models_downloaded_status": "Models downloaded!",
-    "download_completed_header_log": "=== DOWNLOAD COMPLETED ===",
-    "models_available_count_log": "Models available: {count}/5",
-    "download_success_title": "Success!",
-    "download_success_msg": (
-        "Download completed!\n\n"
-        "{check} {count} models available\n"
-        "Location: {location}\n\n"
-        "You can now process with AI!"
-    ),
-    "download_error_status": "Download error",
-    "download_error_log": "Error downloading models",
-    "download_error_title": "Error",
-    "download_error_msg": (
-        "Error downloading models.\n\n"
-        "Possible causes:\n"
-        "- No internet connection\n"
-        "- Firewall blocking GitHub\n"
-        "- Insufficient disk space\n\n"
-        "Try downloading manually from:\n"
-        "github.com/xinntao/Real-ESRGAN/releases"
-    ),
-    "confirm_download_title": "Confirm Download",
-    "confirm_download_msg": (
-        "Download all AI models?\n\n"
-        "5 specialized models:\n"
-        "- Anime Video v3 (gaming/anime)\n"
-        "- x4plus (general purpose)\n"
-        "- x4plus Anime (max quality)\n"
-        "- ESRNet (realistic photos)\n"
-        "- x2plus (fast)\n\n"
-        "~200 MB download\n"
-        "2-5 minutes depending on connection\n\n"
-        "Continue?"
-    ),
-
-    # ---- gui_methods.py  process_full_ai ----
-    "warning_title": "Warning",
-    "select_file_first": "Please select a file first",
-    "select_model_first": "Please select an AI model",
-    "starting_ai_status": "Starting AI processing...",
-    "ai_header_log": "=== AI PROCESSING ===",
-    "file_log": "File: {name}",
-    "model_log": "Model: {model}",
-    "processing_mode_log": "Processing mode: {mode}",
-    "preparing_file_status": "Preparing file...",
-    "converting_video_log": "Converting video to GIF...",
-    "convert_error": "Error converting video to GIF",
-    "video_converted_log": "Video converted: {name}",
-    "extracting_frames_status": "Extracting frames...",
-    "extracting_frames_log": "Extracting frames...",
-    "extract_error": "Error extracting frames",
-    "frames_extracted_log": "Frames extracted: {count}, FPS: {fps:.1f}",
-    "applying_ai_status": "Applying AI with {mode}...",
-    "upscale_error": "Error in AI upscaling",
-    "ai_applied_log": "AI applied: {count} frames enhanced",
-    "empty_frames_error": "Upscaled frames list is empty",
-    "invalid_frame_log": "Invalid frame: {path}",
-    "no_valid_frames_error": "No valid frames after upscaling",
-    "valid_frames_log": "Valid frames: {count}",
-    "color_prep_status": "Preparing color enhancements...",
-    "color_prep_log": "Color enhancements will be applied to final GIF...",
-    "creating_gif_status": "Creating final GIF...",
-    "gif_created_log": "Base GIF created successfully: {size:.2f} MB",
-    "applying_colors_status": "Applying color enhancements...",
-    "applying_colors_log": "Applying color enhancements...",
-    "gif_valid_log": "Valid GIF: {count} frames",
-    "gif_invalid_warning": "GIF not valid for enhancements: {e}",
-    "gif_corrupt_error": "Corrupt base GIF: {e}",
-    "color_timeout_warning": "Color enhancement timeout (>60s)",
-    "continue_no_colors": "Continuing without color enhancements...",
-    "color_error_warning": "Enhancement error: {e}",
-    "colors_applied_log": "Enhancements applied: {size:.2f} MB",
-    "no_colors_needed": "No color enhancements needed",
-    "skip_colors_warning": "Skipping color enhancements: {e}",
-    "processing_completed_status": "Processing completed!",
-    "processing_completed_header": "=== PROCESSING COMPLETED ===",
-    "final_file_log": "Final file: {name}",
-    "size_log": "Size: {size:.2f} MB",
-    "generating_report_log": "Generating quality report...",
-    "report_generated_log": "Quality report generated",
-    "report_failed_log": "Could not generate quality report",
-    "report_system_unavailable": "Report system not available",
-    "report_error_log": "Quality report error: {e}",
-    "success_title": "Success!",
-    "ai_success_msg": (
-        "Processing completed successfully!\n\n"
-        "File: {name}\n"
-        "Size: {size:.2f} MB\n"
-        "Model: {model}\n"
-        "Processed with: {mode}\n\n"
-        "Enhancements applied: {enhanced}\n"
-        "Quality report will open...\n"
-        "Ready to fragment for Steam!"
-    ),
-    "critical_error_log": "CRITICAL ERROR: {e}",
-    "error_title": "Error",
-    "ai_error_msg": (
-        "AI processing error:\n\n{e}\n\n"
-        "Possible causes:\n"
-        "- AI model not available\n"
-        "- Incompatible GPU\n"
-        "- Corrupt input frames\n"
-        "- Insufficient memory\n\n"
-        "Solutions:\n"
-        "- Verify model is downloaded\n"
-        "- Switch to CPU mode\n"
-        "- Use a smaller file\n"
-        "- Restart WorkshopArt"
-    ),
-    "gif_error_msg": (
-        "Error creating final GIF:\n\n{e}\n\n"
-        "Possible causes:\n"
-        "- Corrupt AI frames\n"
-        "- Insufficient memory\n"
-        "- Source file too long\n\n"
-        "Solutions:\n"
-        "- Use a shorter file (<10s)\n"
-        "- Close other applications\n"
-        "- Restart WorkshopArt"
-    ),
-    "generic_error_msg": "Processing error:\n\n{e}",
-    "temp_cleaned_log": "Temporary files cleaned",
-    "temp_clean_warning": "Warning cleaning temp files: {e}",
-    "confirm_process_title": "Confirm Processing",
-    "confirm_process_msg": (
-        "Process file with AI?\n\n"
-        "File: {name}\n"
-        "Model: {model}\n"
-        "Processing: {mode}\n"
-        "Quality: {quality}\n"
-        "Estimated time: 2-10 minutes\n\n"
-        "Color enhancements: {enhanced}\n"
-        "Quality report will be generated\n\n"
-        "Continue?"
-    ),
-    "yes_label": "Yes",
-    "no_label": "No",
-
-    # ---- gui_methods.py  enhance_colors_only ----
-    "enhancing_colors_status": "Enhancing colors...",
-    "applying_color_log": "Applying color enhancements...",
-    "contrast_log": "Contrast: {val:.1f}",
-    "saturation_log": "Saturation: {val:.1f}",
-    "colors_improved_status": "Colors enhanced!",
-    "enhanced_file_log": "Enhanced file: {name}",
-    "colors_success_msg": (
-        "Colors enhanced successfully!\n\n"
-        "File: {name}\n"
-        "Contrast: {contrast:.1f}\n"
-        "Saturation: {saturation:.1f}"
-    ),
-
-    # ---- gui_methods.py  convert_mp4_to_gif ----
-    "not_video_warning": (
-        "Selected file is not a video.\n"
-        "Supported formats: MP4, AVI, MOV, MKV, WEBM"
-    ),
-    "convert_window_title": "Convert Video to GIF",
-    "conversion_title": "Video to GIF Conversion",
-    "selected_file_label": "Selected file",
-    "file_label": "File: {name}",
-    "video_info_label": "Duration: {dur:.1f}s | FPS: {fps:.1f} | {size}",
-    "video_read_error": "Could not read video info",
-    "fps_for_gif": "GIF FPS",
-    "custom_fps": "Custom FPS:",
-    "quality_label": "Quality",
-    "quality_fast": "Fast",
-    "quality_balanced_label": "Balanced",
-    "quality_high_label": "High quality",
-    "options_label": "Options",
-    "resize_steam": "Resize to 638x354 (Steam)",
-    "auto_enhance_colors": "Auto-enhance colors",
-    "estimated_size": "Estimated size: ~{size:.1f} MB",
-    "estimated_size_unavailable": "Estimated size: Unavailable",
-    "estimated_size_calculating": "Estimated size: Calculating...",
-    "convert_to_gif_btn": "Convert to GIF",
-    "cancel_btn": "Cancel",
-    "converting_status": "Converting video to GIF...",
-    "conversion_header_log": "=== MP4 -> GIF CONVERSION ===",
-    "fps_log": "FPS: {fps}",
-    "quality_log": "Quality: {quality}",
-    "resize_log": "Resize: {resize}",
-    "conversion_completed_status": "Conversion completed",
-    "conversion_completed_full_status": "Conversion completed!",
-    "gif_created_file_log": "GIF created: {name}",
-    "final_size_log": "Final size: {size:.2f} MB",
-    "conversion_success_title": "Conversion Successful!",
-    "conversion_success_msg": (
-        "Video converted to GIF!\n\n"
-        "File: {name}\n"
-        "FPS: {fps}\n"
-        "Size: {size:.2f} MB\n"
-        "Enhancements: {enhanced}\n\n"
-        "Ready to process with AI or fragment"
-    ),
-    "conversion_failed": "Could not convert the video",
-    "conversion_error_status": "Conversion error",
-    "conversion_error_msg": "Error converting video:\n\n{e}",
-
-    # ---- gui_methods.py  enhance_animation ----
-    "enhance_anim_window_title": "Enhance Animation",
-    "enhance_anim_title": "Animation Enhancement",
-    "interpolation_60fps": "Interpolate to 60 FPS",
-    "interpolation_desc": "Double/triple frames for smoother playback",
-    "smooth_motion": "Motion Smoothing",
-    "smooth_desc": "Apply soft motion blur",
-    "optimize_playback": "Optimize Playback",
-    "optimize_desc": "Normalize timing for stable playback",
-    "apply_btn": "Apply",
-    "interpolating_status": "Interpolating to 60 FPS...",
-    "interpolation_header_log": "=== 60 FPS INTERPOLATION ===",
-    "interpolation_success": "60 FPS interpolation completed!",
-    "smoothing_status": "Applying smoothing...",
-    "smoothing_header_log": "=== MOTION SMOOTHING ===",
-    "smoothing_success": "Smoothing effect applied!",
-    "optimizing_status": "Optimizing playback...",
-    "optimizing_header_log": "=== PLAYBACK OPTIMIZATION ===",
-    "optimizing_success": "Playback optimized!",
-    "enhancement_completed_status": "Enhancement completed!",
-    "enhanced_file_success_log": "Enhanced file: {name}",
-    "no_changes_status": "No changes needed",
-    "already_optimized_title": "Information",
-    "already_optimized_msg": "The file is already optimized or needs no changes.",
-    "enhancement_error_msg": "Enhancement error: {e}",
-
-    # ---- gui_methods.py  optimization dialog ----
-    "optimization_needed_title": "Optimization Recommended",
-    "optimization_needed_msg": (
-        "OPTIMIZATION NEEDED\n\n"
-        "- Small fragments: {small}/5\n"
-        "- Large fragments: {large}/5\n\n"
-    ),
-    "small_fragments_warning": (
-        "Small fragments may be rejected by Steam.\n"
-        "Optimization will make better use of available space.\n\n"
-    ),
-    "optimization_question": (
-        "Apply automatic optimization?\n\n"
-        "YES: Automatically improve quality\n"
-        "NO: Keep fragments as they are"
-    ),
-
-    # ---- gui_methods.py  fragment reports ----
-    "fragment_completed_title": "Fragmentation Completed",
-    "fragment_completed_msg": (
-        "FRAGMENTATION COMPLETED SUCCESSFULLY!\n\n"
-        "FINAL STATISTICS:\n"
-        "Optimal fragments: {optimal}/5\n"
-        "Small fragments: {small}/5\n"
-        "Large fragments: {large}/5\n\n"
-        "FILES CREATED:\n"
-    ),
-    "fragment_total": "Total: {total:.2f} MB",
-    "fragment_perfect": "PERFECT! All fragments are in the optimal range.\nSteam Workshop will get the best possible quality.",
-    "fragment_excellent": "EXCELLENT! Most fragments are optimized.",
-    "fragment_next_step": (
-        "NEXT STEP:\n"
-        "1. Upload the 5 files to Steam Workshop\n"
-        "2. Open the browser console (F12)\n"
-        "3. Run these commands:\n\n"
-    ),
-    "fragment_ready": "Ready to upload to Steam Workshop!",
-
-    # ---- gui_methods.py  show_help ----
-    "help_window_title": "Help - WorkshopArt",
-    "close_btn": "Close",
-    "help_text": """WORKSHOPART v1.0 - COMPLETE GUIDE
-
-    STEP 1: SELECT FILE
-    - Click "Select File"
-    - Supported formats: MP4, AVI, MOV, GIF
-    - Auto-detection will suggest the best AI model
-
-    STEP 2: CONFIGURE AI
-    - If first time, download models ("Download" button)
-    - Model is automatically selected based on your content
-    - Choose GPU for speed or CPU for compatibility
-
-    STEP 3: PROCESS
-    - Process with AI: Enhance entire file with 4x AI (best quality)
-    - Colors Only: Adjust contrast/saturation without AI (faster)
-    - Enhance Animation: Interpolate frames for smoother playback
-
-    STEP 4: FRAGMENT
-    - Split the GIF into 5 parts for Steam Workshop
-    - Each part will be ~4.6 MB (auto-adjusted)
-    - Automatically resizes to 638x354 px
-
-    STEP 5: UPLOAD TO STEAM
-    1. Go to Steam Workshop Uploader
-    2. Upload the 5 .gif files created
-    3. Open browser console (F12)
-    4. Run the displayed commands
-
-    TIPS:
-    - Use "Auto-detect" for best automatic results
-    - GPU is 5-10x faster than CPU
-    - For long videos, trim to 5-10 seconds first
-    - Adjust colors AFTER applying AI for best results
-
-    AVAILABLE AI MODELS:
-    - Anime Video v3: Perfect for gaming/anime (RECOMMENDED)
-    - x4plus: General purpose, very versatile
-    - x4plus Anime: Maximum quality for illustrations
-    - ESRNet: Realistic photos and portraits
-    - x2plus: 2x scaling, the fastest
-    - Real-CUGAN: Specialized in anime (Bilibili)
-
-    TROUBLESHOOTING:
-    - If GPU not detected: Update drivers
-    - If fragmentation fails: Install FFmpeg
-    - If models won't download: Check firewall/antivirus
-    - If processing is slow: Close other applications
-
-    Full video tutorial:
-    youtube.com/watch?v=BQ-9E7sFWc0""",
-
-    # ---- gui_methods.py  on_closing / run ----
-    "app_closed_log": "Application closed correctly",
-    "welcome_log": "WorkshopArt v2.0 started",
-    "welcome_modular_log": "Modular version with all features",
-    "welcome_start_log": "Select a file to begin",
-    "tutorial_opened_log": "Steam tutorial opened",
-    "tutorial_error_log": "Error opening tutorial: {e}",
-
-    # ---- gui_methods.py  fragment_for_steam ----
-    "fragment_options_title": "Fragmentation Options",
-    "fragment_options_msg": (
-        "How do you want to fragment {name}?\n\n"
-        "YES: Preview first\n"
-        "NO: Fragment directly\n\n"
-        "Recommended: Preview first"
-    ),
-    "preview_error_title": "Preview Error",
-    "preview_error_msg": "Error creating preview:\n{e}\n\nFragmenting directly...",
-
-    # ---- gui_methods.py  fragment_for_steam_direct ----
-    "starting_fragment_status": "Starting fragmentation...",
-    "direct_fragment_header_log": "=== DIRECT FRAGMENTATION ===",
-    "converting_to_gif_log": "Converting to GIF...",
-    "converting_to_gif_status": "Converting to GIF...",
-    "convert_to_gif_error": "Error converting to GIF",
-    "fragmenting_status": "Fragmenting into 5 parts...",
-    "fragmenting_log": "Fragmenting for Steam Workshop...",
-    "fragment_success_status": "Fragmentation completed!",
-    "fragment_success_log": "Fragmentation completed successfully",
-    "created_log": "Created: {name} ({size:.2f} MB)",
-    "fragment_success_title": "Fragmentation Successful!",
-    "fragment_success_msg": (
-        "Fragmentation completed!\n\n"
-        "Files created:\n{files}\n\n"
-        "Total size: {total:.2f} MB\n\n"
-        "Ready to upload to Steam Workshop!"
-    ),
-    "fragment_failed": "Fragmentation failed",
-    "fragment_error_status": "Fragmentation error",
-    "fragment_error_msg": "Fragmentation error:\n\n{e}",
-
-    # ---- gui_methods.py  fragment_for_steam_ffmpeg_only ----
-    "ffmpeg_fragment_header_log": "=== STEAM FRAGMENTATION (FFMPEG ONLY) ===",
-    "verifying_file_status": "Verifying file...",
-    "analyzing_fragments_status": "Analyzing fragments...",
-    "fragment_status_optimal": "OPTIMAL",
-    "fragment_status_small": "SMALL",
-    "fragment_not_created": "Fragment {i} was not created",
-    "optimizing_ffmpeg_status": "Optimizing with FFmpeg...",
-    "optimizing_fragments_log": "Optimizing {count} fragments...",
-    "optimizing_fragment_log": "Optimizing fragment {part}...",
-    "optimized_log": "Optimized: {size:.2f} MB",
-    "not_fully_optimized_log": "Could not fully optimize",
-    "optimized_count_log": "Optimized: {done}/{total}",
-    "ffmpeg_confirm_title": "FFmpeg Fragmentation",
-    "ffmpeg_confirm_msg": (
-        "Fragment using only FFmpeg?\n\n"
-        "{name}\n"
-        "Automatic optimization\n"
-        "No AI processing (faster)\n\n"
-        "Continue?"
-    ),
-
-    # ---- gui_methods.py  optimization internal ----
-    "current_size_log": "   Current size: {current:.2f} MB, target: {target:.2f} MB",
-    "ffmpeg_not_available": "   FFmpeg not available",
-    "trying_strategies_log": "   Trying {count} FFmpeg strategies...",
-    "strategy_result_log": "   FFmpeg strategy {i}: {size:.2f} MB",
-    "strategy_success_log": "   FFmpeg strategy {i} SUCCESS: {old:.2f} -> {new:.2f} MB",
-    "best_result_log": "   Best result so far: {size:.2f} MB",
-    "strategy_error_log": "   Strategy {i} error: {msg}",
-    "strategy_timeout_log": "   Strategy {i} timeout (>60s)",
-    "strategy_exception_log": "   Error strategy {i}: {msg}",
-    "ffmpeg_best_result_log": "   FFmpeg best result: {old:.2f} -> {new:.2f} MB (+{diff:.2f})",
-    "ffmpeg_insufficient_log": "   FFmpeg improvement insufficient: +{diff:.2f} MB",
-    "ffmpeg_no_strategy_log": "   FFmpeg: no strategy reached target",
-    "ffmpeg_general_error_log": "   General FFmpeg error: {e}",
-    # --- UI v2.0 (workflow por pasos) ---
-    "step_file": "File",
-    "step_process": "Process",
-    "step_fragment": "Fragment",
-    "step_upload": "Upload",
-    "analyze_now": "Analyze now",
-    "recent_files": "Recent:",
-    "live_preview": "Live preview",
-    "color_adjustments": "Color adjustments",
-    "preview_no_file": "Load a GIF or image to see the preview",
-    "fragment_now": "Fragment",
-    "open_preview": "Fragment preview",
-    "tip_open_preview": "See how it will look fragmented before cutting",
-    "pipeline_one_click": "⚡ One-click pipeline",
-    "tip_pipeline": "Fully automatic: AI + colors + fragment + optimize",
-    "fragments_ready": "Generated fragments",
-    "refresh_fragments": "Refresh list",
-    "manual_upload": "Manual upload",
-    "open_fragments_folder": "Open folder",
-    "copy_js": "Copy JS",
-    "open_workshop": "Open Workshop",
-    "upload_tool": "Upload Tool",
-    "validate_profile": "Validate profile",
-    "export_zip": "Export ZIP",
-    "tip_validate_profile": "Check your Steam profile and showcase level",
-    "tip_export_zip": "Pack fragments + instructions into a ZIP",
-    "tip_open_folder": "Open the current file's fragments folder",
-    "tip_copy_js": "Copy snippet for the browser console",
-    "tip_open_workshop": "Open the Steam upload page",
-    "tip_upload_tool": "Automatic upload",
-    "no_file_yet": "Load a file in step 1.",
-    "no_fragments_yet": "No fragments yet: use step 3.",
-    "font_scale": "Text size",
-    "restart_for_scale": "The new text size will apply after restarting the app.",
-    "tip_font_scale": "Text size (requires restart)",
-    "tip_help": "Full guide (F1)",
-    "is_anime_question": "Is your content anime?",
-    "anime_yes": "Yes, anime",
-    "anime_no": "No",
-    "tip_is_anime": "Pick the content type to recommend the best AI model",
-}
-
-PT = {
-    # ---- gui.py  Sidebar ----
-    "app_title": "WorkshopArt",
-    "version": "v1.0",
-    "open_file": "Abrir arquivo",
-    "process_ai": "Processar com IA",
-    "colors_only": "Só cores",
-    "mp4_to_gif": "MP4 para GIF",
-    "enhance_animation": "Melhorar animação",
-    "fragment_steam": "Fragmentar...",
-    "optimize_size": "Otimizar para 5MB",
-    "tip_open_file": "Carregue um vídeo, GIF ou imagem (MP4, AVI, MOV, GIF, JPG, PNG)",
-    "tip_process_ai": "Amplie 4x com IA e melhore as cores",
-    "tip_colors_only": "Melhore contraste e saturação sem upscaling",
-    "tip_mp4_to_gif": "Converta um vídeo MP4 em GIF animado",
-    "tip_enhance_animation": "Melhore FPS e fluidez da animação",
-    "tip_fragment_steam": "Escolha o formato: Workshop, Artwork, Screenshot, Panorama, Grids...",
-    "tip_optimize_size": "Reduza fragmentos abaixo do limite de 5MB mantendo a máxima qualidade",
-    "download_models": "Baixar modelos de IA",
-    "tip_download_models": "Baixe modelos Real-ESRGAN e Real-CUGAN (~200 MB)",
-    "help": "Ajuda",
-    "gpu_label": "GPU: ...",
-    "ffmpeg_label": "FFmpeg: ...",
-    "models_label": "Modelos: ...",
-
-    # ---- gui.py  Center ----
-    "drop_here": "Arraste um arquivo aqui",
-    "supported_formats": "MP4 / AVI / MOV / GIF / JPG / PNG",
-    "select_file_btn": "Selecionar arquivo",
-    "log_title": "Registro",
-
-    # ---- gui.py  Right panel ----
-    "config_title": "Configurações",
-    "ai_model": "Modelo de IA",
-    "auto_detect_model": "Detectar modelo automaticamente",
-    "processing_section": "Processamento",
-    "use_gpu": "Usar GPU",
-    "tip_use_gpu": "~10x mais rápido com GPU compatível",
-    "quality_section": "Qualidade",
-    "quality_high": "Alta",
-    "quality_balanced": "Equilibrada",
-    "visual_enhancements": "Melhorias visuais",
-    "enhance_colors": "Melhorar cores",
-    "enhance_animation_check": "Melhorar animação",
-    "contrast": "Contraste",
-    "saturation": "Saturação",
-    "vibrance": "Vibrance",
-    "sharpness": "Nitidez",
-    "temperature": "Temperatura de cor",
-    "model_info": "Info do modelo",
-    "steam_workshop": "Steam Workshop",
-    "steam_instructions": (
-        "1. Fragmente seu GIF\n"
-        "2. Envie os 5 arquivos\n"
-        "3. Console F12 > comandos JS\n"
-        "4. Publique no seu perfil"
-    ),
-    "view_tutorial": "Ver tutorial",
-
-    # ---- gui.py  Hardware requirements ----
-    "hw_requirements": "Requisitos de IA",
-    "hw_info": (
-        "GPU: NVIDIA / AMD com Vulkan\n"
-        "(GTX 1060+ / RX 570+)\n"
-        "RAM: 8 GB mínimo\n"
-        "VRAM: 2 GB mínimo\n"
-        "Sem GPU: processamento por CPU\n"
-        "(muito mais lento, ~10x)"
-    ),
-
-    # ---- gui.py  Status bar ----
-    "status_ready": "Pronto",
-    "cancel_processing": "Cancelar",
-    "cancelling": "Cancelando...",
-    "cancel_requested_log": "Cancelamento solicitado pelo usuário",
-
-    # ---- gui.py  Drag & drop ----
-    "unsupported_format_title": "Formato não suportado",
-    "unsupported_format_msg": "Arraste um arquivo MP4, AVI, MOV, MKV, WEBM, GIF, JPG ou PNG.",
-
-    # ---- gui.py  Language selector ----
-    "language_label": "Idioma",
-
-    # ---- gui_methods.py  check_dependencies ----
-    "checking_gpu": "Verificando GPU...",
-    "gpu_detected": "GPU detectada: {info}",
-    "gpu_not_detected_status": "Não detectada",
-    "gpu_not_detected_log": "GPU não detectada, usando CPU",
-    "ffmpeg_available_status": "Disponível",
-    "ffmpeg_available_log": "FFmpeg disponível",
-    "ffmpeg_not_found_status": "Não encontrado",
-    "ffmpeg_not_found_log": "FFmpeg não encontrado - Alguns recursos limitados",
-    "models_count_status": "{count}/5 modelos",
-    "models_available_log": "{count} modelos disponíveis",
-    "models_not_available_status": "Não disponíveis",
-    "models_not_available_log": "Nenhum modelo disponível - Download necessário",
-    "error_checking_deps": "Erro ao verificar dependências: {e}",
-
-    # ---- gui_methods.py  model info ----
-    "quality_score": "Qualidade: {quality}/10 | Velocidade: {speed}/10",
-    "ideal_for": "Ideal para: {uses}",
-
-    # ---- gui_methods.py  select_file ----
-    "filetypes_media": "Arquivos de mídia",
-    "filetypes_videos": "Vídeos",
-    "filetypes_gifs": "GIFs",
-    "filetypes_all": "Todos",
-    "select_file_title": "Selecionar arquivo",
-
-    # ---- gui_methods.py  show_file_info ----
-    "size_label": "Tamanho: {size:.2f} MB",
-    "dimensions_label": "Dimensões: {w}x{h}",
-    "frames_label": "Frames: {n}",
-    "fps_label": "FPS: {fps:.1f}",
-    "duration_label": "Duração: {dur:.1f}s",
-    "video_info_error": "Não foi possível ler as informações do vídeo",
-    "type_label": "Tipo: {content_type} ({confidence:.0f}%)",
-    "file_selected_log": "Arquivo selecionado: {name}",
-    "file_loaded_status": "Arquivo carregado",
-    "error_prefix": "Erro: {e}",
-    "error_file_info_log": "Erro ao exibir informações do arquivo: {e}",
-
-    # ---- gui_methods.py  analyze_content ----
-    "analyzing_status": "Analisando conteúdo...",
-    "analyzing_log": "Analisando tipo de conteúdo...",
-    "type_detected_log": "Tipo detectado: {content_type}",
-    "model_recommended_log": "Modelo recomendado: {model}",
-    "analysis_completed_status": "Análise concluída",
-    "analysis_error_log": "Erro ao analisar conteúdo: {e}",
-    "analysis_error_status": "Erro na análise",
-
-    # ---- gui_methods.py  download_models ----
-    "preparing_download_status": "Preparando download...",
-    "download_header_log": "=== DOWNLOAD DE MODELOS ===",
-    "downloading_models_log": "Baixando 5 modelos Real-ESRGAN...",
-    "download_completed_log": "Download concluído",
-    "models_downloaded_status": "Modelos baixados!",
-    "download_completed_header_log": "=== DOWNLOAD CONCLUÍDO ===",
-    "models_available_count_log": "Modelos disponíveis: {count}/5",
-    "download_success_title": "Sucesso!",
-    "download_success_msg": (
-        "Download concluído!\n\n"
-        "{check} {count} modelos disponíveis\n"
-        "Local: {location}\n\n"
-        "Você já pode processar com IA!"
-    ),
-    "download_error_status": "Erro no download",
-    "download_error_log": "Erro ao baixar modelos",
-    "download_error_title": "Erro",
-    "download_error_msg": (
-        "Erro ao baixar modelos.\n\n"
-        "Possíveis causas:\n"
-        "- Sem conexão com a internet\n"
-        "- Firewall bloqueando o GitHub\n"
-        "- Espaço insuficiente em disco\n\n"
-        "Tente baixar manualmente em:\n"
-        "github.com/xinntao/Real-ESRGAN/releases"
-    ),
-    "confirm_download_title": "Confirmar Download",
-    "confirm_download_msg": (
-        "Baixar todos os modelos de IA?\n\n"
-        "5 modelos especializados:\n"
-        "- Anime Video v3 (gaming/anime)\n"
-        "- x4plus (uso geral)\n"
-        "- x4plus Anime (máxima qualidade)\n"
-        "- ESRNet (fotos realistas)\n"
-        "- x2plus (rápido)\n\n"
-        "~200 MB de download\n"
-        "2-5 minutos dependendo da conexão\n\n"
-        "Continuar?"
-    ),
-
-    # ---- gui_methods.py  process_full_ai ----
-    "warning_title": "Aviso",
-    "select_file_first": "Primeiro selecione um arquivo",
-    "select_model_first": "Selecione um modelo de IA",
-    "starting_ai_status": "Iniciando processamento com IA...",
-    "ai_header_log": "=== PROCESSAMENTO COM IA ===",
-    "file_log": "Arquivo: {name}",
-    "model_log": "Modelo: {model}",
-    "processing_mode_log": "Modo de processamento: {mode}",
-    "preparing_file_status": "Preparando arquivo...",
-    "converting_video_log": "Convertendo vídeo para GIF...",
-    "convert_error": "Erro ao converter vídeo para GIF",
-    "video_converted_log": "Vídeo convertido: {name}",
-    "extracting_frames_status": "Extraindo frames...",
-    "extracting_frames_log": "Extraindo frames...",
-    "extract_error": "Erro ao extrair frames",
-    "frames_extracted_log": "Frames extraídos: {count}, FPS: {fps:.1f}",
-    "applying_ai_status": "Aplicando IA com {mode}...",
-    "upscale_error": "Erro no upscaling com IA",
-    "ai_applied_log": "IA aplicada: {count} frames melhorados",
-    "empty_frames_error": "A lista de frames processados está vazia",
-    "invalid_frame_log": "Frame inválido: {path}",
-    "no_valid_frames_error": "Nenhum frame válido após o upscaling",
-    "valid_frames_log": "Frames válidos: {count}",
-    "color_prep_status": "Preparando melhorias de cor...",
-    "color_prep_log": "Melhorias de cor serão aplicadas ao GIF final...",
-    "creating_gif_status": "Criando GIF final...",
-    "gif_created_log": "GIF base criado com sucesso: {size:.2f} MB",
-    "applying_colors_status": "Aplicando melhorias de cor...",
-    "applying_colors_log": "Aplicando melhorias de cor...",
-    "gif_valid_log": "GIF válido: {count} frames",
-    "gif_invalid_warning": "GIF inválido para melhorias: {e}",
-    "gif_corrupt_error": "GIF base corrompido: {e}",
-    "color_timeout_warning": "Timeout nas melhorias de cor (>60s)",
-    "continue_no_colors": "Continuando sem melhorias de cor...",
-    "color_error_warning": "Erro nas melhorias: {e}",
-    "colors_applied_log": "Melhorias aplicadas: {size:.2f} MB",
-    "no_colors_needed": "Nenhuma melhoria de cor necessária",
-    "skip_colors_warning": "Pulando melhorias de cor: {e}",
-    "processing_completed_status": "Processamento concluído!",
-    "processing_completed_header": "=== PROCESSAMENTO CONCLUÍDO ===",
-    "final_file_log": "Arquivo final: {name}",
-    "size_log": "Tamanho: {size:.2f} MB",
-    "generating_report_log": "Gerando relatório de qualidade...",
-    "report_generated_log": "Relatório de qualidade gerado",
-    "report_failed_log": "Não foi possível gerar o relatório de qualidade",
-    "report_system_unavailable": "Sistema de relatórios não disponível",
-    "report_error_log": "Erro no relatório de qualidade: {e}",
-    "success_title": "Sucesso!",
-    "ai_success_msg": (
-        "Processamento concluído com sucesso!\n\n"
-        "Arquivo: {name}\n"
-        "Tamanho: {size:.2f} MB\n"
-        "Modelo: {model}\n"
-        "Processado com: {mode}\n\n"
-        "Melhorias aplicadas: {enhanced}\n"
-        "O relatório de qualidade será aberto...\n"
-        "Pronto para fragmentar para o Steam!"
-    ),
-    "critical_error_log": "ERRO CRÍTICO: {e}",
-    "error_title": "Erro",
-    "ai_error_msg": (
-        "Erro no processamento com IA:\n\n{e}\n\n"
-        "Possíveis causas:\n"
-        "- Modelo de IA não disponível\n"
-        "- GPU incompatível\n"
-        "- Frames de entrada corrompidos\n"
-        "- Memória insuficiente\n\n"
-        "Soluções:\n"
-        "- Verifique se o modelo está baixado\n"
-        "- Mude para modo CPU\n"
-        "- Use um arquivo menor\n"
-        "- Reinicie o WorkshopArt"
-    ),
-    "gif_error_msg": (
-        "Erro ao criar GIF final:\n\n{e}\n\n"
-        "Possíveis causas:\n"
-        "- Frames de IA corrompidos\n"
-        "- Memória insuficiente\n"
-        "- Arquivo original muito longo\n\n"
-        "Soluções:\n"
-        "- Use um arquivo mais curto (<10s)\n"
-        "- Feche outros aplicativos\n"
-        "- Reinicie o WorkshopArt"
-    ),
-    "generic_error_msg": "Erro no processamento:\n\n{e}",
-    "temp_cleaned_log": "Arquivos temporários limpos",
-    "temp_clean_warning": "Aviso ao limpar temporários: {e}",
-    "confirm_process_title": "Confirmar Processamento",
-    "confirm_process_msg": (
-        "Processar arquivo com IA?\n\n"
-        "Arquivo: {name}\n"
-        "Modelo: {model}\n"
-        "Processamento: {mode}\n"
-        "Qualidade: {quality}\n"
-        "Tempo estimado: 2-10 minutos\n\n"
-        "Melhorias de cor: {enhanced}\n"
-        "Relatório de qualidade será gerado\n\n"
-        "Continuar?"
-    ),
-    "yes_label": "Sim",
-    "no_label": "Não",
-
-    # ---- gui_methods.py  enhance_colors_only ----
-    "enhancing_colors_status": "Melhorando cores...",
-    "applying_color_log": "Aplicando melhorias de cor...",
-    "contrast_log": "Contraste: {val:.1f}",
-    "saturation_log": "Saturação: {val:.1f}",
-    "colors_improved_status": "Cores melhoradas!",
-    "enhanced_file_log": "Arquivo melhorado: {name}",
-    "colors_success_msg": (
-        "Cores melhoradas com sucesso!\n\n"
-        "Arquivo: {name}\n"
-        "Contraste: {contrast:.1f}\n"
-        "Saturação: {saturation:.1f}"
-    ),
-
-    # ---- gui_methods.py  convert_mp4_to_gif ----
-    "not_video_warning": (
-        "O arquivo selecionado não é um vídeo.\n"
-        "Formatos suportados: MP4, AVI, MOV, MKV, WEBM"
-    ),
-    "convert_window_title": "Converter Vídeo para GIF",
-    "conversion_title": "Conversão de Vídeo para GIF",
-    "selected_file_label": "Arquivo selecionado",
-    "file_label": "Arquivo: {name}",
-    "video_info_label": "Duração: {dur:.1f}s | FPS: {fps:.1f} | {size}",
-    "video_read_error": "Não foi possível ler as informações do vídeo",
-    "fps_for_gif": "FPS para o GIF",
-    "custom_fps": "FPS personalizado:",
-    "quality_label": "Qualidade",
-    "quality_fast": "Rápido",
-    "quality_balanced_label": "Equilibrado",
-    "quality_high_label": "Alta qualidade",
-    "options_label": "Opções",
-    "resize_steam": "Redimensionar para 638x354 (Steam)",
-    "auto_enhance_colors": "Melhorar cores automaticamente",
-    "estimated_size": "Tamanho estimado: ~{size:.1f} MB",
-    "estimated_size_unavailable": "Tamanho estimado: Indisponível",
-    "estimated_size_calculating": "Tamanho estimado: Calculando...",
-    "convert_to_gif_btn": "Converter para GIF",
-    "cancel_btn": "Cancelar",
-    "converting_status": "Convertendo vídeo para GIF...",
-    "conversion_header_log": "=== CONVERSÃO MP4 -> GIF ===",
-    "fps_log": "FPS: {fps}",
-    "quality_log": "Qualidade: {quality}",
-    "resize_log": "Redimensionar: {resize}",
-    "conversion_completed_status": "Conversão concluída",
-    "conversion_completed_full_status": "Conversão concluída!",
-    "gif_created_file_log": "GIF criado: {name}",
-    "final_size_log": "Tamanho final: {size:.2f} MB",
-    "conversion_success_title": "Conversão Bem-sucedida!",
-    "conversion_success_msg": (
-        "Vídeo convertido para GIF!\n\n"
-        "Arquivo: {name}\n"
-        "FPS: {fps}\n"
-        "Tamanho: {size:.2f} MB\n"
-        "Melhorias: {enhanced}\n\n"
-        "Pronto para processar com IA ou fragmentar"
-    ),
-    "conversion_failed": "Não foi possível converter o vídeo",
-    "conversion_error_status": "Erro na conversão",
-    "conversion_error_msg": "Erro ao converter vídeo:\n\n{e}",
-
-    # ---- gui_methods.py  enhance_animation ----
-    "enhance_anim_window_title": "Melhorar Animação",
-    "enhance_anim_title": "Melhoria de Animação",
-    "interpolation_60fps": "Interpolar para 60 FPS",
-    "interpolation_desc": "Duplica/triplica frames para maior fluidez",
-    "smooth_motion": "Suavização de Movimento",
-    "smooth_desc": "Aplica motion blur suave",
-    "optimize_playback": "Otimizar Reprodução",
-    "optimize_desc": "Normaliza o timing para reprodução estável",
-    "apply_btn": "Aplicar",
-    "interpolating_status": "Interpolando para 60 FPS...",
-    "interpolation_header_log": "=== INTERPOLAÇÃO PARA 60 FPS ===",
-    "interpolation_success": "Interpolação para 60 FPS concluída!",
-    "smoothing_status": "Aplicando suavização...",
-    "smoothing_header_log": "=== SUAVIZAÇÃO DE MOVIMENTO ===",
-    "smoothing_success": "Efeito de suavização aplicado!",
-    "optimizing_status": "Otimizando reprodução...",
-    "optimizing_header_log": "=== OTIMIZAÇÃO DE REPRODUÇÃO ===",
-    "optimizing_success": "Reprodução otimizada!",
-    "enhancement_completed_status": "Melhoria concluída!",
-    "enhanced_file_success_log": "Arquivo melhorado: {name}",
-    "no_changes_status": "Nenhuma alteração necessária",
-    "already_optimized_title": "Informação",
-    "already_optimized_msg": "O arquivo já está otimizado ou não precisa de alterações.",
-    "enhancement_error_msg": "Erro na melhoria: {e}",
-
-    # ---- gui_methods.py  optimization dialog ----
-    "optimization_needed_title": "Otimização Recomendada",
-    "optimization_needed_msg": (
-        "OTIMIZAÇÃO NECESSÁRIA\n\n"
-        "- Fragmentos pequenos: {small}/5\n"
-        "- Fragmentos grandes: {large}/5\n\n"
-    ),
-    "small_fragments_warning": (
-        "Fragmentos pequenos podem ser rejeitados pelo Steam.\n"
-        "A otimização aproveitará melhor o espaço disponível.\n\n"
-    ),
-    "optimization_question": (
-        "Aplicar otimização automática?\n\n"
-        "SIM: Melhora a qualidade automaticamente\n"
-        "NÃO: Mantém os fragmentos como estão"
-    ),
-
-    # ---- gui_methods.py  fragment reports ----
-    "fragment_completed_title": "Fragmentação Concluída",
-    "fragment_completed_msg": (
-        "FRAGMENTAÇÃO CONCLUÍDA COM SUCESSO!\n\n"
-        "ESTATÍSTICAS FINAIS:\n"
-        "Fragmentos ótimos: {optimal}/5\n"
-        "Fragmentos pequenos: {small}/5\n"
-        "Fragmentos grandes: {large}/5\n\n"
-        "ARQUIVOS CRIADOS:\n"
-    ),
-    "fragment_total": "Total: {total:.2f} MB",
-    "fragment_perfect": "PERFEITO! Todos os fragmentos estão no intervalo ideal.\nO Steam Workshop receberá a melhor qualidade possível.",
-    "fragment_excellent": "EXCELENTE! A maioria dos fragmentos está otimizada.",
-    "fragment_next_step": (
-        "PRÓXIMO PASSO:\n"
-        "1. Envie os 5 arquivos para o Steam Workshop\n"
-        "2. Abra o console do navegador (F12)\n"
-        "3. Execute estes comandos:\n\n"
-    ),
-    "fragment_ready": "Pronto para enviar ao Steam Workshop!",
-
-    # ---- gui_methods.py  show_help ----
-    "help_window_title": "Ajuda - WorkshopArt",
-    "close_btn": "Fechar",
-    "help_text": """WORKSHOPART v1.0 - GUIA COMPLETO
-
-    PASSO 1: SELECIONAR ARQUIVO
-    - Clique em "Selecionar Arquivo"
-    - Formatos suportados: MP4, AVI, MOV, GIF
-    - A detecção automática sugerirá o melhor modelo de IA
-
-    PASSO 2: CONFIGURAR IA
-    - Se for a primeira vez, baixe os modelos (botão "Baixar")
-    - O modelo é selecionado automaticamente conforme o conteúdo
-    - Escolha GPU para velocidade ou CPU para compatibilidade
-
-    PASSO 3: PROCESSAR
-    - Processar com IA: Melhora todo o arquivo com IA 4x (melhor qualidade)
-    - Só Cores: Ajusta contraste/saturação sem IA (mais rápido)
-    - Melhorar Animação: Interpola frames para maior fluidez
-
-    PASSO 4: FRAGMENTAR
-    - Divide o GIF em 5 partes para o Steam Workshop
-    - Cada parte terá ~4,6 MB (ajuste automático)
-    - Redimensiona para 638x354 px automaticamente
-
-    PASSO 5: ENVIAR PARA O STEAM
-    1. Acesse o Steam Workshop Uploader
-    2. Envie os 5 arquivos .gif criados
-    3. Abra o console do navegador (F12)
-    4. Execute os comandos exibidos
-
-    DICAS:
-    - Use "Detectar automaticamente" para melhores resultados
-    - GPU é 5-10x mais rápido que CPU
-    - Para vídeos longos, recorte para 5-10 segundos primeiro
-    - Ajuste as cores DEPOIS de aplicar a IA para melhor resultado
-
-    MODELOS DE IA DISPONÍVEIS:
-    - Anime Video v3: Perfeito para gaming/anime (RECOMENDADO)
-    - x4plus: Uso geral, muito versátil
-    - x4plus Anime: Máxima qualidade para ilustrações
-    - ESRNet: Fotos realistas e retratos
-    - x2plus: Escala 2x, o mais rápido
-    - Real-CUGAN: Especializado em anime (Bilibili)
-
-    SOLUÇÃO DE PROBLEMAS:
-    - Se a GPU não for detectada: Atualize os drivers
-    - Se a fragmentação falhar: Instale o FFmpeg
-    - Se os modelos não baixarem: Verifique o firewall/antivírus
-    - Se o processo estiver lento: Feche outros aplicativos
-
-    Tutorial completo em vídeo:
-    youtube.com/watch?v=BQ-9E7sFWc0""",
-
-    # ---- gui_methods.py  on_closing / run ----
-    "app_closed_log": "Aplicativo fechado corretamente",
-    "welcome_log": "WorkshopArt v2.0 iniciado",
-    "welcome_modular_log": "Versão modular com todas as funções",
-    "welcome_start_log": "Selecione um arquivo para começar",
-    "tutorial_opened_log": "Tutorial do Steam aberto",
-    "tutorial_error_log": "Erro ao abrir tutorial: {e}",
-
-    # ---- gui_methods.py  fragment_for_steam ----
-    "fragment_options_title": "Opções de Fragmentação",
-    "fragment_options_msg": (
-        "Como deseja fragmentar {name}?\n\n"
-        "SIM: Ver preview primeiro\n"
-        "NÃO: Fragmentar diretamente\n\n"
-        "Recomendado: Ver preview primeiro"
-    ),
-    "preview_error_title": "Erro no Preview",
-    "preview_error_msg": "Erro ao criar preview:\n{e}\n\nFragmentando diretamente...",
-
-    # ---- gui_methods.py  fragment_for_steam_direct ----
-    "starting_fragment_status": "Iniciando fragmentação...",
-    "direct_fragment_header_log": "=== FRAGMENTAÇÃO DIRETA ===",
-    "converting_to_gif_log": "Convertendo para GIF...",
-    "converting_to_gif_status": "Convertendo para GIF...",
-    "convert_to_gif_error": "Erro ao converter para GIF",
-    "fragmenting_status": "Fragmentando em 5 partes...",
-    "fragmenting_log": "Fragmentando para o Steam Workshop...",
-    "fragment_success_status": "Fragmentação concluída!",
-    "fragment_success_log": "Fragmentação concluída com sucesso",
-    "created_log": "Criado: {name} ({size:.2f} MB)",
-    "fragment_success_title": "Fragmentação Bem-sucedida!",
-    "fragment_success_msg": (
-        "Fragmentação concluída!\n\n"
-        "Arquivos criados:\n{files}\n\n"
-        "Tamanho total: {total:.2f} MB\n\n"
-        "Prontos para enviar ao Steam Workshop!"
-    ),
-    "fragment_failed": "A fragmentação falhou",
-    "fragment_error_status": "Erro na fragmentação",
-    "fragment_error_msg": "Erro na fragmentação:\n\n{e}",
-
-    # ---- gui_methods.py  fragment_for_steam_ffmpeg_only ----
-    "ffmpeg_fragment_header_log": "=== FRAGMENTAÇÃO STEAM (SOMENTE FFMPEG) ===",
-    "verifying_file_status": "Verificando arquivo...",
-    "analyzing_fragments_status": "Analisando fragmentos...",
-    "fragment_status_optimal": "ÓTIMO",
-    "fragment_status_small": "PEQUENO",
-    "fragment_not_created": "Fragmento {i} não foi criado",
-    "optimizing_ffmpeg_status": "Otimizando com FFmpeg...",
-    "optimizing_fragments_log": "Otimizando {count} fragmentos...",
-    "optimizing_fragment_log": "Otimizando fragmento {part}...",
-    "optimized_log": "Otimizado: {size:.2f} MB",
-    "not_fully_optimized_log": "Não foi possível otimizar completamente",
-    "optimized_count_log": "Otimizados: {done}/{total}",
-    "ffmpeg_confirm_title": "Fragmentação FFmpeg",
-    "ffmpeg_confirm_msg": (
-        "Fragmentar usando somente FFmpeg?\n\n"
-        "{name}\n"
-        "Otimização automática\n"
-        "Sem processamento de IA (mais rápido)\n\n"
-        "Continuar?"
-    ),
-
-    # ---- gui_methods.py  optimization internal ----
-    "current_size_log": "   Tamanho atual: {current:.2f} MB, objetivo: {target:.2f} MB",
-    "ffmpeg_not_available": "   FFmpeg não disponível",
-    "trying_strategies_log": "   Testando {count} estratégias FFmpeg...",
-    "strategy_result_log": "   Estratégia FFmpeg {i}: {size:.2f} MB",
-    "strategy_success_log": "   Estratégia FFmpeg {i} SUCESSO: {old:.2f} -> {new:.2f} MB",
-    "best_result_log": "   Melhor resultado até agora: {size:.2f} MB",
-    "strategy_error_log": "   Estratégia {i} erro: {msg}",
-    "strategy_timeout_log": "   Estratégia {i} timeout (>60s)",
-    "strategy_exception_log": "   Erro na estratégia {i}: {msg}",
-    "ffmpeg_best_result_log": "   FFmpeg melhor resultado: {old:.2f} -> {new:.2f} MB (+{diff:.2f})",
-    "ffmpeg_insufficient_log": "   Melhoria FFmpeg insuficiente: +{diff:.2f} MB",
-    "ffmpeg_no_strategy_log": "   FFmpeg: nenhuma estratégia atingiu o objetivo",
-    "ffmpeg_general_error_log": "   Erro geral FFmpeg: {e}",
-    # --- UI v2.0 (workflow por pasos) ---
-    "step_file": "Arquivo",
-    "step_process": "Processar",
-    "step_fragment": "Fragmentar",
-    "step_upload": "Enviar",
-    "analyze_now": "Analisar agora",
-    "recent_files": "Recentes:",
-    "live_preview": "Pré-visualização ao vivo",
-    "color_adjustments": "Ajustes de cor",
-    "preview_no_file": "Carregue um GIF ou imagem para ver a pré-visualização",
-    "fragment_now": "Fragmentar",
-    "open_preview": "Pré-visualização de fragmentos",
-    "tip_open_preview": "Veja como ficará fragmentado antes de cortar",
-    "pipeline_one_click": "⚡ Pipeline 1-clique",
-    "tip_pipeline": "Tudo automático: IA + cores + fragmentar + otimizar",
-    "fragments_ready": "Fragmentos gerados",
-    "refresh_fragments": "Atualizar lista",
-    "manual_upload": "Envio manual",
-    "open_fragments_folder": "Abrir pasta",
-    "copy_js": "Copiar JS",
-    "open_workshop": "Abrir Workshop",
-    "upload_tool": "Upload Tool",
-    "validate_profile": "Validar perfil",
-    "export_zip": "Exportar ZIP",
-    "tip_validate_profile": "Verificar seu perfil Steam e nível para showcases",
-    "tip_export_zip": "Empacotar fragmentos + instruções em um ZIP",
-    "tip_open_folder": "Abrir a pasta de fragmentos do arquivo atual",
-    "tip_copy_js": "Copiar snippet para o console do navegador",
-    "tip_open_workshop": "Abrir a página de envio da Steam",
-    "tip_upload_tool": "Envio automático",
-    "no_file_yet": "Carregue um arquivo na etapa 1.",
-    "no_fragments_yet": "Ainda não há fragmentos: use a etapa 3.",
-    "font_scale": "Tamanho do texto",
-    "restart_for_scale": "O novo tamanho de texto será aplicado ao reiniciar o aplicativo.",
-    "tip_font_scale": "Tamanho do texto (requer reiniciar)",
-    "tip_help": "Guia completo (F1)",
-    "is_anime_question": "Seu conteúdo é anime?",
-    "anime_yes": "Sim, anime",
-    "anime_no": "Não",
-    "tip_is_anime": "Escolha o tipo de conteúdo para recomendar o melhor modelo de IA",
-}
-
-_LANGS = {"ES": ES, "EN": EN, "PT": PT}
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 def t(key: str, fallback: str = None, **kwargs) -> str:
-    """Return the translated string for *key* in the current language.
-    Supports ``{placeholder}`` formatting via **kwargs.
-    Falls back to ES, then to fallback, then to the raw key.
+    """Return the text for ``key`` in the current language, with {placeholders} filled.
+
+    Unknown keys return ``fallback`` (or the key itself); formatting errors
+    return the unformatted text instead of raising.
     """
-    text = _LANGS.get(_current_lang, ES).get(key)
-    if text is None:
-        text = ES.get(key, fallback or key)
+    entry = _STRINGS.get(key)
+    text = entry[_current] if entry else (fallback if fallback is not None else key)
     if kwargs:
         try:
             text = text.format(**kwargs)
@@ -1765,13 +565,13 @@ def t(key: str, fallback: str = None, **kwargs) -> str:
     return text
 
 
-def set_language(lang: str):
-    """Set the active language ('ES', 'EN', or 'PT')."""
-    global _current_lang
+def set_language(lang: str) -> None:
+    """Set the active language: "ES", "EN" or "PT" (anything else is ignored)."""
+    global _current
     if lang in _LANGS:
-        _current_lang = lang
+        _current = _LANGS.index(lang)
 
 
 def get_language() -> str:
-    """Return the current language code."""
-    return _current_lang
+    """Return the active language code."""
+    return _LANGS[_current]

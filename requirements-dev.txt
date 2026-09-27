@@ -1,0 +1,5 @@
+# Development tools: tests, lint and the .exe build
+-r requirements.txt
+pytest>=8
+pyflakes>=3
+pyinstaller>=6

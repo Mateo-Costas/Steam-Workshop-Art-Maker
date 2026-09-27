@@ -1,54 +1,45 @@
 """
-steam_uploader.py - Auto-upload de fragmentos a Steam Workshop (uso personal).
+steam_uploader.py - automatic upload of fragments to Steam (used by upload_tool.py).
 
-PRIVADO: este archivo está gitignoreado.
+A Playwright-controlled Firefox logs in with the cookies of your browser session
+and fills Steam's upload form for each file. Cookie sources, in order:
+  1. Firefox through browser_cookie3 (pip install browser_cookie3). Chrome and Edge
+     are tried too, but since 2024 they encrypt cookies with a key only the browser
+     itself can use (App-Bound Encryption), so they rarely work.
+  2. steam_cookies.json in the app folder: {"sessionid": ..., "steamLoginSecure": ...}.
 
-Carga de credenciales (en orden de preferencia):
-  1. browser_cookie3 leyendo Firefox automáticamente (recomendado).
-  2. Fallback: `steam_cookies.json` en la raíz del proyecto con las claves
-     {"sessionid": "...", "steamLoginSecure": "..."}.
-
-Pre-requisito browser_cookie3:  pip install browser_cookie3
-Cierra Firefox antes si Windows bloquea cookies.sqlite.
+Close the browser before uploading: Windows locks its cookie database while it runs.
 """
 from __future__ import annotations
+import importlib.util
 import json
 import logging
 import os
 import re
+import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("WorkshopArt.steam_uploader")
 
 # ---------------------------------------------------------------------------
 # Fijar PLAYWRIGHT_BROWSERS_PATH a una ruta permanente ANTES de que playwright
 # se importe o inicialice. En frozen mode el temp dir (_MEI*) se destruye al
 # cerrar la app, por lo que los browsers instalados ahi se pierden.
 # ---------------------------------------------------------------------------
-_PW_BROWSERS_DIR = (
-    Path(sys.executable).parent / "SteamWorkshopAppData" / "browsers"
-    if getattr(sys, 'frozen', False)
-    else Path(__file__).parent.parent / "SteamWorkshopAppData" / "browsers"
-)
+from app_paths import APP_DIR, DATA_DIR, LOGS_DIR  # noqa: E402
+
+_PW_BROWSERS_DIR = DATA_DIR / "browsers"
 _PW_BROWSERS_DIR.mkdir(parents=True, exist_ok=True)
 os.environ['PLAYWRIGHT_BROWSERS_PATH'] = str(_PW_BROWSERS_DIR)
 
 import requests
 
-# Rutas: junto al exe en builds frozen, junto al script en desarrollo
-_BASE_DIR = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent.parent
-COOKIES_FILE = _BASE_DIR / "steam_cookies.json"
-LOGS_DIR = _BASE_DIR / "SteamWorkshopAppData" / "logs"
+COOKIES_FILE = APP_DIR / "steam_cookies.json"
 LOGS_KEEP_N = 10          # rotar dumps, mantener últimos N pares
-UPLOAD_URL = "https://steamcommunity.com/sharedfiles/edititem/767/3/"
-SUBMIT_URL = "https://steamcommunity.com/sharedfiles/submititem/"
-WORKSHOP_APP_ID = "767"   # 767 = Steam genérico (no asociado a juego concreto)
-CONSUMER_APP_ID = "767"   # también 767 — artwork no-de-un-juego
-FILE_TYPE = "3"           # file_type por defecto: artwork (3). Workshop=0, Screenshot=5
-VISIBILITY = "0"          # Public
 UPLOAD_DELAY_SEC = 15     # espera entre uploads para evitar LimitExceeded
 
 
@@ -84,8 +75,8 @@ def _rotate_logs() -> None:
     try:
         if not LOGS_DIR.exists():
             return
-        for pattern in ("upload_fail_*.html", "uploadartwork_get_*.html",
-                        "up_*.gif", "up_*.jpg", "up_*.png"):
+        for pattern in ("pw_fail_*.html", "pw_no_fileinput_*", "pw_login_check_*.png",
+                        "pw_redir_login_*.png", "upload_fail_*.html", "up_*.*"):
             files = sorted(LOGS_DIR.glob(pattern), key=lambda p: p.stat().st_mtime)
             for old in files[:-LOGS_KEEP_N]:
                 try:
@@ -213,9 +204,9 @@ def _get_cached_cookies() -> Tuple[str, Optional[requests.cookies.RequestsCookie
     return ("none", None)
 
 
-def invalidate_cookies_cache() -> None:
-    global _COOKIES_CACHE
-    _COOKIES_CACHE = None
+def browser_cookies_available() -> bool:
+    """True when browser_cookie3 is installed (always in the .exe)."""
+    return importlib.util.find_spec("browser_cookie3") is not None
 
 
 def cookies_configured() -> bool:
@@ -224,78 +215,6 @@ def cookies_configured() -> bool:
 
 def cookies_source() -> str:
     return _get_cached_cookies()[0]
-
-
-def _bootstrap_sessionid(s: requests.Session) -> bool:
-    """Si no hay sessionid, visita steamcommunity.com para que Steam lo emita."""
-    if s.cookies.get("sessionid", domain=".steamcommunity.com") or s.cookies.get("sessionid"):
-        return True
-    try:
-        r = s.get("https://steamcommunity.com/my/home/", timeout=20, allow_redirects=True)
-        r.raise_for_status()
-        if s.cookies.get("sessionid", domain=".steamcommunity.com") or s.cookies.get("sessionid"):
-            return True
-    except Exception as e:
-        logger.warning(f"Bootstrap de sessionid fallo: {e}")
-    return False
-
-
-def _session() -> Optional[requests.Session]:
-    _, jar = _get_cached_cookies()
-    if jar is None:
-        return None
-    s = requests.Session()
-    s.cookies = jar
-    s.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
-        "Origin": "https://steamcommunity.com",
-        "Referer": UPLOAD_URL,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "X-Requested-With": "XMLHttpRequest",
-    })
-    _bootstrap_sessionid(s)
-    return s
-
-
-# ---------------------------------------------------------------------------
-# Parsing de respuesta
-# ---------------------------------------------------------------------------
-
-_PUBID_REDIRECT_RE = re.compile(r'[?&]id=(\d{6,})')
-_PUBID_JSON_RE = re.compile(r'"publishedfileid"\s*:\s*"?(\d{6,})"?')
-
-
-def _extract_publishedfileid(resp: requests.Response) -> Optional[str]:
-    # 1) Redirect de éxito: /filedetails/?id=<pubid>
-    for r in list(resp.history) + [resp]:
-        loc = r.headers.get("Location", "")
-        m = _PUBID_REDIRECT_RE.search(loc)
-        if m:
-            return m.group(1)
-    # 2) URL final (allow_redirects=True)
-    m = _PUBID_REDIRECT_RE.search(resp.url or "")
-    if m:
-        return m.group(1)
-    # 3) JSON body
-    try:
-        j = resp.json()
-        if j.get("success") == 1:
-            pid = j.get("publishedfileid")
-            if pid:
-                return str(pid)
-    except ValueError:
-        pass
-    # 4) Fallback JSON regex en HTML
-    m = _PUBID_JSON_RE.search(resp.text or "")
-    if m:
-        return m.group(1)
-    return None
-
-
-def _looks_like_login_page(text: str) -> bool:
-    low = text.lower() if text else ""
-    return "g_sessionid" not in low and ("login" in low or "sign in" in low)
 
 
 # ---------------------------------------------------------------------------
@@ -336,251 +255,8 @@ def _sort_by_part(file_paths: List[Path]) -> List[Path]:
 
 
 # ---------------------------------------------------------------------------
-# Upload
-# ---------------------------------------------------------------------------
-
-def _upload_single(session: requests.Session, file_path: Path, title: str,
-                   description: str = "") -> Tuple[bool, str]:
-    sessionid = session.cookies.get("sessionid", domain=".steamcommunity.com") \
-                or session.cookies.get("sessionid")
-    if not sessionid:
-        return False, "sessionid no encontrado en cookies"
-
-    # Hard-check: Steam artwork showcase límite = 5 MiB exactos (5242880 bytes).
-    # Detectar antes para no gastar round-trip.
-    STEAM_MAX_BYTES = 5 * 1024 * 1024  # 5,242,880
-    try:
-        file_size = file_path.stat().st_size
-    except OSError as e:
-        return False, f"No stat: {e}"
-    if file_size > STEAM_MAX_BYTES:
-        return False, (f"Archivo {file_size:,} bytes > límite Steam "
-                       f"{STEAM_MAX_BYTES:,} bytes ({STEAM_MAX_BYTES/1024/1024:.2f} MiB). "
-                       f"Reoptimiza con Optimizar a 5MB")
-
-    # El form real manda el archivo dos veces: 'file' y 'preview_file'
-    try:
-        file_bytes = file_path.read_bytes()
-    except OSError as e:
-        return False, f"No se pudo leer el archivo: {e}"
-
-    _ext = file_path.suffix.lower()
-    if _ext == '.gif':
-        mime_type = "image/gif"
-        try:
-            if file_bytes and file_bytes[-1] != 0x21:
-                file_bytes = file_bytes[:-1] + b"\x21"
-        except Exception:
-            pass
-    elif _ext in ('.jpg', '.jpeg'):
-        mime_type = "image/jpeg"
-    else:
-        mime_type = "image/png"
-
-    try:
-        from PIL import Image as _PIL_Image
-        with _PIL_Image.open(file_path) as _im:
-            img_w, img_h = _im.size
-    except Exception as e:
-        return False, f"Imagen corrupta o ilegible: {e}"
-
-    # Scrape form real de /sharedfiles/uploadartwork para obtener action + hidden fields
-    form_action = SUBMIT_URL
-    form_fields: Dict[str, str] = {}
-    try:
-        r_form = session.get(UPLOAD_URL, timeout=30)
-        r_form.raise_for_status()
-        html = r_form.text
-        # dump uploadartwork GET para inspección (rotado)
-        try:
-            LOGS_DIR.mkdir(exist_ok=True)
-            (LOGS_DIR / f"uploadartwork_get_{int(time.time())}.html").write_text(
-                _redact_sensitive(html), encoding="utf-8", errors="ignore")
-            _rotate_logs()
-        except Exception:
-            pass
-        # action
-        m_action = re.search(r'<form[^>]+id=["\']ImageForm["\'][^>]*action=["\']([^"\']+)["\']', html, re.I)
-        if not m_action:
-            m_action = re.search(r'<form[^>]+action=["\']([^"\']*submititem[^"\']*)["\']', html, re.I)
-        if m_action:
-            act = m_action.group(1)
-            form_action = act if act.startswith("http") else f"https://steamcommunity.com{act}"
-        # hidden inputs
-        for m_h in re.finditer(
-            r'<input[^>]+type=["\']hidden["\'][^>]+name=["\']([^"\']+)["\'][^>]+value=["\']([^"\']*)["\']',
-            html, re.I,
-        ):
-            form_fields[m_h.group(1)] = m_h.group(2)
-        # Algunos inputs vienen con value antes de name — orden invertido
-        for m_h in re.finditer(
-            r'<input[^>]+type=["\']hidden["\'][^>]+value=["\']([^"\']*)["\'][^>]+name=["\']([^"\']+)["\']',
-            html, re.I,
-        ):
-            form_fields.setdefault(m_h.group(2), m_h.group(1))
-    except Exception:
-        pass
-
-    # Mezcla: hidden fields del form manda (wg/wg_hmac/token/sessionid); solo
-    # sobreescribimos lo user-supplied.
-    data = dict(form_fields)
-    data["title"] = title[:128]
-    data["description"] = description
-    data["visibility"] = VISIBILITY
-    # Dimensiones: el form trae "0", sobreescribir siempre con las reales
-    if img_w > 0:
-        data["image_width"] = str(img_w)
-    if img_h > 0:
-        data["image_height"] = str(img_h)
-    # Confiamos en los hidden fields del form (appid=767, consumer_app_id=767,
-    # file_type y tokens). Solo defaults si el form no los trajo.
-    data.setdefault("appid", WORKSHOP_APP_ID)
-    data.setdefault("consumer_app_id", CONSUMER_APP_ID)
-    data.setdefault("file_type", FILE_TYPE)
-    data.setdefault("tags", "")
-    data.setdefault("youtube_username", "")
-    files = {
-        "file": (file_path.name, file_bytes, mime_type),
-        "preview_file": (file_path.name, file_bytes, mime_type),
-    }
-
-    # Un retry con backoff para transient 429/5xx
-    last_err = ""
-    for attempt in range(3):
-        try:
-            resp = session.post(form_action, data=data, files=files, timeout=120)
-        except requests.RequestException as e:
-            last_err = f"Error de red: {e}"
-            time.sleep(2)
-            continue
-
-        if resp.status_code in (429, 500, 502, 503, 504):
-            last_err = f"HTTP {resp.status_code} (reintentando)"
-            time.sleep(3 * (attempt + 1))
-            continue
-
-        if resp.status_code not in (200, 302):
-            return False, f"HTTP {resp.status_code}"
-
-        if _looks_like_login_page(resp.text):
-            return False, ("Sesión expirada: re-logueate en Steam desde Firefox, Chrome o Edge, "
-                           "o re-exporta steam_cookies.json")
-
-        pubid = _extract_publishedfileid(resp)
-        if pubid:
-            return True, f"OK (id={pubid})"
-
-        # Dump respuesta para depuración (rotado)
-        try:
-            LOGS_DIR.mkdir(exist_ok=True)
-            dump_file = LOGS_DIR / f"upload_fail_{int(time.time())}.html"
-            dump_file.write_text(_redact_sensitive(resp.text or ""), encoding="utf-8", errors="ignore")
-            _rotate_logs()
-            dump_hint = f" (dump: {dump_file})"
-        except Exception:
-            dump_hint = ""
-
-        # Sin id claro: puede ser LimitExceeded o rechazo
-        snippet = (resp.text or "")[:300].replace("\n", " ")
-        final_url = resp.url
-        try:
-            fg_url = r_form.url
-            fg_status = r_form.status_code
-            fg_size = len(r_form.text or "")
-        except Exception:
-            fg_url, fg_status, fg_size = "?", "?", 0
-        _posted_keys = list(data.keys())
-        _posted_preview = {k: (v[:40] + "...") if isinstance(v, str) and len(v) > 40 else v
-                           for k, v in data.items()
-                           if k in ("appid", "consumer_app_id", "file_type",
-                                    "visibility", "image_width", "image_height",
-                                    "publishedfileid", "id", "realm", "redirect_uri")}
-        fields_info = (f"action={form_action} hidden={list(form_fields.keys())} "
-                       f"GET_form: url={fg_url} status={fg_status} size={fg_size} "
-                       f"posted_keys={_posted_keys} posted_preview={_posted_preview}")
-        return False, (f"Steam no devolvió publishedfileid. "
-                       f"URL final: {final_url} | status: {resp.status_code}{dump_hint}. "
-                       f"Form: {fields_info}. Snippet: {snippet}")
-
-    return False, last_err or "Error desconocido"
-
-
-def upload_fragments(file_paths: List[Path],
-                     title_prefix: str = "WorkshopArt",
-                     progress_cb: Optional[Callable[[int, int, str], None]] = None
-                     ) -> List[Tuple[Path, bool, str]]:
-    session = _session()
-    if session is None:
-        return [(p, False, "Cookies no disponibles (Firefox, Chrome, Edge ni steam_cookies.json)") for p in file_paths]
-
-    file_paths = _sort_by_part(list(file_paths))
-    results: List[Tuple[Path, bool, str]] = []
-    total = len(file_paths)
-    _MAX_FRAG_TRIES = 3
-    for i, path in enumerate(file_paths, 1):
-        part_num = _parse_part_number(path) or i
-        title = f"{title_prefix} - {part_num}/{total}"
-        ok, msg = False, "Sin intentar"
-        for _attempt in range(1, _MAX_FRAG_TRIES + 1):
-            _hint = f" [intento {_attempt}/{_MAX_FRAG_TRIES}]" if _attempt > 1 else ""
-            if progress_cb:
-                progress_cb(i, total,
-                            f"Subiendo {path.name} ({part_num}/{total}){_hint}...")
-            ok, msg = _upload_single(session, path, title)
-            if ok:
-                break
-            _is_session = "expirada" in msg.lower() or "re-logu" in msg.lower()
-            if _is_session or _attempt == _MAX_FRAG_TRIES:
-                break
-            if progress_cb:
-                progress_cb(i, total,
-                            f"[RETRY {_attempt}/{_MAX_FRAG_TRIES}] {path.name}: {msg}")
-            time.sleep(3 * _attempt)
-        results.append((path, ok, msg))
-        if progress_cb:
-            status = "OK" if ok else "FAIL"
-            progress_cb(i, total, f"[{status}] {path.name} ({part_num}/{total}): {msg}")
-        if i < total:
-            time.sleep(UPLOAD_DELAY_SEC)
-    return results
-
-
-# ---------------------------------------------------------------------------
 # Playwright — automatiza Firefox visible, mimica al usuario real
 # ---------------------------------------------------------------------------
-
-def _find_system_firefox() -> Optional[str]:
-    """Devuelve la ruta al firefox.exe del sistema, o None si no se encuentra."""
-    _pf = os.environ.get("ProgramFiles", r"C:\Program Files")
-    _pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-    candidates = [
-        str(Path(_pf) / "Mozilla Firefox" / "firefox.exe"),
-        str(Path(_pf86) / "Mozilla Firefox" / "firefox.exe"),
-    ]
-    # Buscar en registro de Windows
-    try:
-        import winreg
-        for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
-            for subkey in (
-                r"SOFTWARE\Mozilla\Mozilla Firefox",
-                r"SOFTWARE\WOW6432Node\Mozilla\Mozilla Firefox",
-            ):
-                try:
-                    with winreg.OpenKey(root, subkey) as k:
-                        version, _ = winreg.QueryValueEx(k, "CurrentVersion")
-                        with winreg.OpenKey(k, f"{version}\\Main") as mk:
-                            path, _ = winreg.QueryValueEx(mk, "PathToExe")
-                            if path and Path(path).exists():
-                                return str(path)
-                except OSError:
-                    pass
-    except Exception:
-        pass
-    for c in candidates:
-        if Path(c).exists():
-            return c
-    return None
-
 
 def _pw_cookies_from_jar(jar: requests.cookies.RequestsCookieJar) -> list:
     out = []
@@ -984,13 +660,13 @@ def upload_fragments_playwright(file_paths: List[Path],
                     return p
                 if p.suffix.lower() == '.gif' and data[-1] != 0x21:
                     data = data[:-1] + b"\x21"
-                LOGS_DIR.mkdir(exist_ok=True)
-                short = LOGS_DIR / f"up_{int(time.time())}_{idx}{p.suffix.lower()}"
+                short = _UPLOAD_TMP / f"up_{idx}{p.suffix.lower()}"
                 short.write_bytes(data)
                 return short
             except Exception:
                 return p
 
+        _UPLOAD_TMP = Path(tempfile.mkdtemp(prefix="wkart_up_"))
         _MAX_FRAG_TRIES = 3
         for i, path in enumerate(file_paths, 1):
             part_num = _parse_part_number(path) or i
@@ -1037,8 +713,8 @@ def upload_fragments_playwright(file_paths: List[Path],
                             page.screenshot(path=str(shot), full_page=True)
                         except Exception:
                             shot = None
-                        raise Exception(f"Sesión expirada o cookies inválidas: Steam redirigió a login. "
-                                        f"Re-logéate en Firefox/Chrome/Edge y cierra el navegador antes de subir."
+                        raise Exception("Sesión expirada o cookies inválidas: Steam redirigió a login. "
+                                        "Re-logéate en Firefox/Chrome/Edge y cierra el navegador antes de subir."
                                         + (f" screenshot={shot}" if shot else ""))
                     if progress_cb:
                         progress_cb(i, total, f"   form URL: {final_url_form}")
@@ -1115,9 +791,7 @@ def upload_fragments_playwright(file_paths: List[Path],
 
                     if mode in ("artwork", "screenshot"):
                         try:
-                            from PIL import Image as _PilImg
-                            with _PilImg.open(upload_path) as _im:
-                                _actual_w, _actual_h = _im.size
+                            _actual_w, _actual_h = _image_size(upload_path)
                             _dim_w = 1000 if spoof_dimensions else _actual_w
                             _dim_h = 1    if spoof_dimensions else _actual_h
                             spoofed = page.evaluate(
@@ -1283,5 +957,17 @@ def upload_fragments_playwright(file_paths: List[Path],
                 time.sleep(UPLOAD_DELAY_SEC)
 
         browser.close()
+        shutil.rmtree(_UPLOAD_TMP, ignore_errors=True)
 
     return results
+
+
+def _image_size(path: Path) -> Tuple[int, int]:
+    """(width, height) of an image; GIFs are read without decoding (patched ones too)."""
+    if path.suffix.lower() == ".gif":
+        from gif_utils import read_timing
+        timing = read_timing(path)
+        return timing.width, timing.height
+    from PIL import Image
+    with Image.open(path) as image:
+        return image.size

@@ -1,32 +1,20 @@
-# WorkshopArt v2.0 - Dependencias (versión completa)
+# WorkshopArt - dependencias (Python 3.10 o superior, Windows 10/11)
+#
+#   pip install -r requirements.txt
+#
+# FFmpeg, gifski, gifsicle, Real-ESRGAN, Real-CUGAN y RIFE no son paquetes de
+# Python: la aplicación los descarga sola la primera vez que se abre.
 
-# === CORE ===
-pillow>=12.3.0,<13.0.0
-# moviepy: fijado a <2.0.0 porque moviepy 2.x exige pillow<12, incompatible con el
-# fix de seguridad pillow>=12.3.0. El codigo importa VideoFileClip de forma compatible
-# con ambas versiones (moviepy.editor en 1.x, namespace raiz en 2.x).
-moviepy>=1.0.3,<2.0.0
-opencv-python>=4.8.0,<5.0.0
-numpy>=1.24.0,<2.0.0
-matplotlib>=3.7.0,<4.0.0
-requests>=2.31.0,<3.0.0
-tqdm>=4.65.0,<5.0.0
-windnd>=1.0.7,<2.0.0
-customtkinter>=5.2.0,<6.0.0
+pillow>=12.3.0,<13         # imágenes y GIF (12.3.0 corrige CVE-2026-55379)
+numpy>=1.24,<3
+opencv-python>=4.8,<6      # lectura de vídeo y análisis del reporte de calidad
+customtkinter>=5.2,<6      # interfaz
+windnd>=1.0.7,<2           # arrastrar y soltar archivos en Windows
+requests>=2.31,<3          # descarga de herramientas y modelos
+matplotlib>=3.7,<4         # gráficos del reporte de calidad
 
-# === GPU INFO ===
-# GPUtil: detección de VRAM para GPUs NVIDIA (opcional, falla silenciosamente)
-gputil>=1.4.0,<2.0.0
-
-# === GIF OPTIMIZATION ===
-# pygifsicle: wrapper para gifsicle (el binario se auto-descarga si no está instalado)
-pygifsicle>=1.0.5,<2.0.0
-
-# === OPCIONAL (auto-upload Steam, uso personal) ===
-# browser_cookie3>=0.19.0
-
-# === NOTAS ===
-# tkinter:   Incluido con Python
-# FFmpeg:    Se descarga automáticamente por la app
-# gifsicle:  Se descarga automáticamente por la app al primer uso
-# Modelos IA: Se descargan automáticamente por la app (requiere versión PRO)
+# Opcionales
+#   Subida automática a Steam (Upload Tool):
+#       pip install playwright browser_cookie3
+#   IA algo más rápida sin procesos externos:
+#       pip install realesrgan-ncnn-py

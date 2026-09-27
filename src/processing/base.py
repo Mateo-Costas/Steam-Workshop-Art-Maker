@@ -1,99 +1,100 @@
-"""processing.base - SteamProcessorBase: init, workspace helpers, binary/GPU discovery."""
-import sys
+"""processing.base - SteamProcessorBase: init, workspace helpers, tool and GPU discovery."""
+import json
+import re
 import shutil
-import platform
 import subprocess
+import sys
+import time
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import List, Optional, Tuple
 
+from app_paths import find_tool, resolve
 from config import Config
 from models import ModelManager
-from analyzers import ContentAnalyzer
-
 from processing.common import _NO_WINDOW_FLAGS, logger
+
+# One PowerShell call lists the video adapters with their real VRAM.
+# Win32_VideoController.AdapterRAM is a 32-bit field (caps at 4 GB), so the
+# 64-bit size is read from the display driver's registry key when available.
+_GPU_QUERY = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+$vram = @{}
+Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\0*' |
+  ForEach-Object {
+    $q = $_.'HardwareInformation.qwMemorySize'
+    if ($q -is [byte[]]) { $q = [BitConverter]::ToUInt64($q, 0) }
+    if ($q -and $_.DriverDesc) { $vram[$_.DriverDesc] = [uint64]$q }
+  }
+@(Get-CimInstance Win32_VideoController | ForEach-Object {
+    $mem = if ($vram.ContainsKey($_.Name)) { $vram[$_.Name] } else { [uint64]$_.AdapterRAM }
+    [pscustomobject]@{ Name = $_.Name; VRAM = $mem }
+}) | ConvertTo-Json -Compress
+"""
+
+_GPU_VENDORS = ("nvidia", "geforce", "quadro", "amd", "radeon", "intel arc", "arc ")
+_VIRTUAL_ADAPTERS = ("basic display", "remote", "virtual", "parsec", "mirror")
 
 
 class SteamProcessorBase:
-    """Main processor for images, video, and GIFs destined for Steam Workshop uploads."""
+    """Main processor for images, video, and GIFs destined for Steam uploads."""
 
     def __init__(self, config: Config):
         self.config = config
-        self.model_manager = ModelManager(Path(config.get('paths.models')))
-        self.content_analyzer = ContentAnalyzer()
-        self.use_gpu = config.get('gpu.use_gpu', True)
-        self.gpu_id = config.get('gpu.gpu_id', 0)
-        
-        if getattr(sys, 'frozen', False):
-            # PyInstaller sets sys.frozen; executables live next to bundled assets
-            self.base_path = Path(sys.executable).parent
-        else:
-            self.base_path = Path.cwd()
-        
-        logger.info(f"🔍 Base path detectado: {self.base_path}")
-        
-        # Rutas de ejecutables
-        self.ffmpeg_path = self._find_executable("ffmpeg")
-        self.gifski_path = self._find_executable("gifski")
-        self.gifsicle_path = self._find_executable("gifsicle")
-        self.realesrgan_path = self._find_executable("realesrgan-ncnn-vulkan")
-        self.realcugan_path = self._find_executable("realcugan-ncnn-vulkan")
+        self.model_manager = ModelManager(
+            resolve(config.get("paths.models", "SteamWorkshopAppData/models")))
 
-        logger.info(f"FFmpeg: {self.ffmpeg_path}")
-        logger.info(f"gifski: {self.gifski_path or 'no encontrado (opcional)'}")
-        logger.info(f"gifsicle: {self.gifsicle_path or 'no encontrado (se descargará al usar)'}")
-        logger.info(f"Real-ESRGAN: {self.realesrgan_path}")
-        logger.info(f"Real-CUGAN: {self.realcugan_path}")
+        self.ffmpeg_path = find_tool("ffmpeg")
+        self.gifski_path = find_tool("gifski")
+        self.gifsicle_path = find_tool("gifsicle")
+        self.realesrgan_path = find_tool("realesrgan-ncnn-vulkan")
+        self.realcugan_path = find_tool("realcugan-ncnn-vulkan")
+        for name, path in (("FFmpeg", self.ffmpeg_path), ("gifski", self.gifski_path),
+                           ("gifsicle", self.gifsicle_path),
+                           ("Real-ESRGAN", self.realesrgan_path),
+                           ("Real-CUGAN", self.realcugan_path)):
+            logger.info("%s: %s", name, path or "no encontrado")
 
         self._last_split_error = ""
-
-        # Cache for GPU detection (avoid repeated wmic/subprocess calls)
         self._gpu_cache: Optional[Tuple[bool, str]] = None
-
+        self._gifsicle_unavailable = False  # set after a failed download attempt
         self.patch_trailer_for_steam = True
 
-    # Workspace: <stem>_workshop/<categoria>/ junto al archivo fuente.
+    # ------------------------------------------------------------------
+    # Workspace: <stem>_workshop/<category>/ next to the source file
+    # ------------------------------------------------------------------
     _WORKSPACE_SUFFIX_TOKEN = "_workshop"
     _WORKSPACE_SUFFIXES = (
-        "_AI_4x", "_enhanced", "_60fps", "_smooth", "_opt", "_optimized",
-        "_converted", "_resized_temp", "_artwork_resized_temp",
+        "_AI", "_AI_4x", "_enhanced", "_opt", "_converted",
     )
 
     def _strip_workspace_suffix(self, stem: str) -> str:
-        """Remove processing suffixes and part-numbering from a filename stem to recover the original base name."""
-        import re
+        """Remove processing suffixes and part numbering to recover the original base name."""
         stem = re.sub(r"_part_\d+$", "", stem)
         stem = re.sub(r"_artwork_(main|side)$", "", stem)
-        for s in self._WORKSPACE_SUFFIXES:
-            if stem.endswith(s):
-                stem = stem[: -len(s)]
-                break
+        for suffix in self._WORKSPACE_SUFFIXES:
+            if stem.endswith(suffix):
+                return stem[: -len(suffix)]
         return stem
 
     def _workspace_root(self, source: Path) -> Path:
-        """Devuelve la carpeta <stem>_workshop/ real, remontando si la fuente
-        ya vive dentro de un workshop existente."""
-        token = self._WORKSPACE_SUFFIX_TOKEN
-        # Remontar si source está dentro de un *_workshop/
+        """Return the <stem>_workshop/ folder, climbing up if the source already lives inside one."""
         for parent in source.parents:
-            if parent.name.endswith(token):
+            if parent.name.endswith(self._WORKSPACE_SUFFIX_TOKEN):
                 return parent
-        root_stem = self._strip_workspace_suffix(source.stem)
-        return source.parent / f"{root_stem}{token}"
+        return source.parent / f"{self._strip_workspace_suffix(source.stem)}{self._WORKSPACE_SUFFIX_TOKEN}"
 
     def _workspace_dir(self, source: Path, category: str) -> Path:
-        """Return (and create) a category subdirectory inside the workspace root for source."""
+        """Return (and create) a category subfolder inside the workspace of ``source``."""
         out = self._workspace_root(source) / category
         out.mkdir(parents=True, exist_ok=True)
         return out
 
     def get_fragments_dir(self, source: Path) -> Path:
-        """Devuelve la ruta donde se guardan los fragmentos creados a partir
-        de `source`. Útil para que la UI localice los archivos reales."""
+        """Folder where the fragments created from ``source`` are written."""
         return self._workspace_root(source) / "fragmentos"
 
-    def list_fragments(self, source: Path, pattern: str = "_part_") -> List[Path]:
-        """Lista fragmentos en la carpeta workspace (GIF, JPEG o PNG).
-        `pattern` filtra por subcadena del nombre (ej. '_part_' o 'artwork_')."""
+    def list_fragments(self, source: Path, pattern: str = "") -> List[Path]:
+        """Fragment images (GIF, JPEG or PNG) of ``source``, optionally filtered by name."""
         frag_dir = self.get_fragments_dir(source)
         if not frag_dir.exists():
             return []
@@ -102,35 +103,47 @@ class SteamProcessorBase:
                       and p.suffix.lower() in {".gif", ".jpg", ".jpeg", ".png"}
                       and pattern in p.name)
 
-    def _archive_before_overwrite(self, out_dir: Path, keep_names: Optional[List[str]] = None) -> None:
-        """Limpia la carpeta de salida antes de una nueva corrida.
-        Borra archivos sueltos (excepto los listados en keep_names y manifest.json)
-        y cualquier subcarpeta residual como _historico. Sin archivado."""
+    def read_fragments_manifest(self, source: Path) -> dict:
+        """Return the manifest.json written by the last fragmentation of ``source`` ({} if none)."""
+        try:
+            manifest = self.get_fragments_dir(source) / "manifest.json"
+            return json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _archive_before_overwrite(self, out_dir: Path, keep_names: Optional[List[str]] = None,
+                                  protect: Optional[Path] = None) -> None:
+        """Empty ``out_dir`` before a new run.
+
+        Keeps manifest.json, the names in ``keep_names`` and ``protect`` (the
+        source file, in case the user picked a file that lives in this folder).
+        """
         if not out_dir.exists():
             return
         keep = set(keep_names or [])
+        protected = protect.resolve() if protect else None
         for p in out_dir.iterdir():
             try:
+                if protected is not None and p.resolve() == protected:
+                    continue
                 if p.is_file():
                     if p.name in keep or p.name == "manifest.json":
                         continue
                     p.unlink()
                 elif p.is_dir():
                     shutil.rmtree(p, ignore_errors=True)
-            except Exception as e:
-                logger.warning(f"No se pudo limpiar {p.name}: {e}")
+            except OSError as e:
+                logger.warning("No se pudo limpiar %s: %s", p.name, e)
 
     def _write_manifest(self, out_dir: Path, operacion: str, parametros: dict,
                         archivos: Optional[List[Path]] = None,
                         fuente: Optional[Path] = None) -> None:
-        """Escribe manifest.json con traza de la corrida."""
-        import json as _json
-        import time as _t
+        """Write manifest.json describing the run that produced ``out_dir``."""
         try:
             out_dir.mkdir(parents=True, exist_ok=True)
             data = {
                 "operacion": operacion,
-                "fecha": _t.strftime("%Y-%m-%d %H:%M:%S"),
+                "fecha": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "fuente": str(fuente) if fuente else None,
                 "parametros": parametros,
                 "archivos": [
@@ -140,155 +153,63 @@ class SteamProcessorBase:
                 ],
             }
             (out_dir / "manifest.json").write_text(
-                _json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
-        except Exception as e:
-            logger.warning(f"No se pudo escribir manifest: {e}")
+                json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except OSError as e:
+            logger.warning("No se pudo escribir manifest: %s", e)
 
-    def _find_executable(self, name: str) -> Optional[Path]:
-        """Locate a bundled or system-installed executable by name.
-        Checks SteamWorkshopAppData/, base dir, _internal/, cwd, then PATH."""
-        ext = ".exe" if platform.system() == "Windows" else ""
-        filename = f"{name}{ext}"
-
-        search_paths = [
-            self.base_path / "SteamWorkshopAppData" / filename,  # preferred bundle location
-            self.base_path / filename,                             # legacy: next to the exe
-            self.base_path / "_internal" / filename,               # PyInstaller _internal dir
-            Path.cwd() / filename,
-        ]
-
-        for path in search_paths:
-            if path.exists():
-                logger.info(f"✅ Encontrado {name} en: {path}")
-                return path
-
-        # Fall back to system PATH (e.g. ffmpeg installed globally)
-        system_path = shutil.which(name)
-        if system_path:
-            logger.info(f"✅ Encontrado {name} en PATH: {system_path}")
-            return Path(system_path)
-
-        logger.error(f"❌ No se encontró {name}")
-        return None
-
-    def check_gpu_available(self, force: bool = False) -> Tuple[bool, str]:
-        """Return (available, description) for the best detected GPU, using a cached result.
-        Pass force=True to bypass the cache and re-probe (e.g. after driver changes)."""
-        if self._gpu_cache is not None and not force:
-            return self._gpu_cache
-        result = self._check_gpu_uncached()
-        self._gpu_cache = result
-        return result
-
-    def _check_gpu_uncached(self) -> Tuple[bool, str]:
-        """Probe GPU availability: tries Real-ESRGAN -h, then wmic on Windows."""
-        try:
-            # Método 1: Verificar directamente con el ejecutable de Real-ESRGAN
-            if self.realesrgan_path and self.realesrgan_path.exists():
-                try:
-                    # Ejecutar con --help para verificar GPU
-                    result = subprocess.run(
-                        [str(self.realesrgan_path), "-h"], 
-                        capture_output=True, text=True, timeout=10, **_NO_WINDOW_FLAGS
-                    )
-                    
-                    if result.returncode == 0 or "Usage:" in (result.stdout + result.stderr):
-                        # El ejecutable funciona, ahora verificar GPU
-                        try:
-                            # Intentar listar GPUs
-                            gpu_result = subprocess.run(
-                                [str(self.realesrgan_path), "-g", "-1", "-h"], 
-                                capture_output=True, text=True, timeout=5, **_NO_WINDOW_FLAGS
-                            )
-                            
-                            output = gpu_result.stderr + gpu_result.stdout
-                            if "AMD" in output:
-                                return True, "AMD GPU detectada (Real-ESRGAN compatible)"
-                            elif "NVIDIA" in output:
-                                return True, "NVIDIA GPU detectada (Real-ESRGAN compatible)"
-                            elif "vulkan" in output.lower():
-                                return True, "GPU Vulkan compatible detectada"
-                            else:
-                                return True, "GPU detectada por Real-ESRGAN"
-                        except Exception:
-                            # Si no podemos verificar GPU específica, asumir que funciona
-                            return True, "GPU compatible (Real-ESRGAN disponible)"
-                except Exception as e:
-                    logger.error(f"Error verificando con Real-ESRGAN: {e}")
-            
-            # Método 2: Verificar con wmic (Windows)
-            if platform.system() == "Windows":
-                try:
-                    result = subprocess.run(
-                        ['wmic', 'path', 'win32_VideoController', 'get', 'name'], 
-                        capture_output=True, text=True, timeout=10, **_NO_WINDOW_FLAGS
-                    )
-                    if result.returncode == 0:
-                        gpu_info = result.stdout.lower()
-                        
-                        # Buscar AMD
-                        if 'amd' in gpu_info or 'radeon' in gpu_info:
-                            lines = result.stdout.strip().split('\n')
-                            for line in lines:
-                                if 'amd' in line.lower() or 'radeon' in line.lower():
-                                    clean_line = line.strip()
-                                    if clean_line and clean_line != "Name":
-                                        # Intentar obtener VRAM via wmic AdapterRAM
-                                        try:
-                                            vram_res = subprocess.run(
-                                                ['wmic', 'path', 'win32_VideoController', 'get', 'AdapterRAM'],
-                                                capture_output=True, text=True, timeout=5, **_NO_WINDOW_FLAGS
-                                            )
-                                            for vline in vram_res.stdout.strip().split('\n'):
-                                                try:
-                                                    vram_bytes = int(vline.strip())
-                                                    if vram_bytes > 0:
-                                                        vram_gb = vram_bytes / (1024 ** 3)
-                                                        return True, f"AMD: {clean_line} ({vram_gb:.0f} GB VRAM)"
-                                                except ValueError:
-                                                    pass
-                                        except Exception:
-                                            pass
-                                        return True, f"AMD: {clean_line}"
-                            return True, "AMD GPU detectada"
-
-                        # Buscar NVIDIA
-                        elif 'nvidia' in gpu_info or 'geforce' in gpu_info:
-                            lines = result.stdout.strip().split('\n')
-                            for line in lines:
-                                if 'nvidia' in line.lower() or 'geforce' in line.lower():
-                                    clean_line = line.strip()
-                                    if clean_line and clean_line != "Name":
-                                        try:
-                                            import GPUtil  # optional; not always installed
-                                            gpus = GPUtil.getGPUs()
-                                            if gpus:
-                                                vram_gb = gpus[0].memoryTotal / 1024  # memoryTotal is MB
-                                                return True, f"NVIDIA: {clean_line} ({vram_gb:.0f} GB VRAM)"
-                                        except Exception:
-                                            pass
-                                        return True, f"NVIDIA: {clean_line}"
-                            return True, "NVIDIA GPU detectada"
-                        
-                        # Buscar Intel
-                        elif 'intel' in gpu_info:
-                            return True, "Intel GPU detectada (soporte limitado)"
-                except Exception as e:
-                    logger.error(f"Error con wmic: {e}")
-            
-            return False, "No se detectó GPU compatible"
-            
-        except Exception as e:
-            logger.error(f"Error general detectando GPU: {e}")
-            return False, f"Error detectando GPU: {e}"
-        
+    # ------------------------------------------------------------------
+    # Tools and GPU
+    # ------------------------------------------------------------------
     def check_ffmpeg(self) -> bool:
-        """Verificar disponibilidad de ffmpeg"""
+        """True when an FFmpeg executable is available."""
         return self.ffmpeg_path is not None and self.ffmpeg_path.exists()
 
     def check_gifski(self) -> bool:
-        """Verificar disponibilidad de gifski (encoder GIF de alta calidad)"""
+        """True when gifski (high-quality GIF encoder, optional) is available."""
         return self.gifski_path is not None and self.gifski_path.exists()
-    
 
+    def check_gpu_available(self, force: bool = False) -> Tuple[bool, str]:
+        """Return (available, description) of the best GPU. Cached after the first call."""
+        if self._gpu_cache is None or force:
+            self._gpu_cache = self._detect_gpu()
+        return self._gpu_cache
+
+    def _detect_gpu(self) -> Tuple[bool, str]:
+        adapters = self._list_video_adapters()
+        candidates = [
+            (name, vram) for name, vram in adapters
+            if any(v in name.lower() for v in _GPU_VENDORS)
+            and not any(v in name.lower() for v in _VIRTUAL_ADAPTERS)
+        ]
+        if candidates:
+            name, vram = max(candidates, key=lambda item: item[1])
+            if vram >= 512 * 1024 * 1024:
+                return True, f"{name} ({vram / 1024 ** 3:.0f} GB VRAM)"
+            return True, name
+        if self.realesrgan_path is not None:
+            # No adapter list (non-Windows or PowerShell blocked): the Vulkan
+            # tools still pick a GPU on their own if there is one.
+            return True, "GPU Vulkan"
+        return False, "No se detecto GPU compatible"
+
+    @staticmethod
+    def _list_video_adapters() -> List[Tuple[str, int]]:
+        """[(name, vram_bytes)] of the system's video adapters (Windows only)."""
+        if sys.platform != "win32":
+            return []
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", _GPU_QUERY],
+                capture_output=True, text=True, timeout=20, **_NO_WINDOW_FLAGS)
+            data = json.loads(result.stdout or "[]")
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
+            logger.warning("No se pudo consultar la GPU: %s", e)
+            return []
+        if isinstance(data, dict):
+            data = [data]
+        adapters = []
+        for item in data:
+            name = " ".join(str(item.get("Name") or "").split())
+            if name:
+                adapters.append((name, int(item.get("VRAM") or 0)))
+        return adapters

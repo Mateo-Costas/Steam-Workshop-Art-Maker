@@ -60,10 +60,10 @@ config.json
 logs/
 runtime.log
 
-# Workspaces de archivos procesados por el usuario
+# Workspaces created next to the files the user processes
 *_workshop/
 
-# Docs privadas (notas internas, no para distribución)
+# Private notes (not distributed)
 docs/STEAM_ANIMATED_ARTWORK_EXPERT.md
 
 # Claude Code internal files

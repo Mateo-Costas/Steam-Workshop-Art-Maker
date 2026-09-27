@@ -1,16 +1,14 @@
 """
-upload_tool.py - Mini app independiente para auto-subir GIFs a Steam Workshop.
+upload_tool.py - WorkshopArt Upload Tool: uploads fragments to Steam automatically.
 
-Privado, gitignoreado. Reusa src/steam_uploader.py.
+Opened from the app (step 4 or the fragment result dialog) with the fragments
+and their preset preloaded, or on its own:
 
-Uso:
-    python upload_tool.py
+    python upload_tool.py [--fragments FILE ...] [--preset KEY]
 
-Requisitos:
-    - requests (ya en requirements.txt)
-    - browser_cookie3 (opcional pero recomendado: pip install browser_cookie3)
-    - Firefox logueado en steamcommunity.com (cierra Firefox antes de subir)
-      O un fichero steam_cookies.json en la raíz con sessionid+steamLoginSecure.
+Needs the Steam session of Firefox (read with browser_cookie3; current Chrome
+and Edge encrypt their cookies for themselves) or a steam_cookies.json file;
+see src/steam_uploader.py.
 """
 from __future__ import annotations
 import sys
@@ -21,19 +19,10 @@ from queue import Queue, Empty
 
 import customtkinter as ctk
 
-# Importar el uploader desde src/
+# The uploader lives in src/ (next to this file, or bundled when frozen).
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT / "src"))
-try:
-    import steam_uploader
-except ImportError as e:
-    messagebox.showerror(
-        "Error",
-        "No se encontró src/steam_uploader.py.\n\n"
-        "Este módulo es privado y debe existir en la carpeta src/.\n\n"
-        f"Detalle: {e}"
-    )
-    sys.exit(1)
+import steam_uploader  # noqa: E402
 
 
 ctk.set_appearance_mode("dark")
@@ -41,11 +30,12 @@ ctk.set_default_color_theme("blue")
 
 # Preset → (upload_mode, auto_spoof, label)
 UPLOAD_PRESETS: dict[str, tuple[str, bool, str]] = {
+    "workshop_5part":   ("workshop",   False, "Workshop Showcase 5 partes (638x354)"),
     "featured_630":     ("artwork",    False, "Featured Artwork 630×H (1 slot)"),
     "artwork_single_630": ("artwork",  False, "Artwork single 630×354 (sin side image, 16:9)"),
     "artwork_2part":    ("artwork",    False, "Artwork 506+100 (main+side, alto libre)"),
     "artwork_4grid":    ("artwork",    False, "Artwork 4-grid 4×245"),
-    "panorama_5_630":   ("artwork",    False, "Panorama artwork 5×630×360"),
+    "panorama_5_630":   ("artwork",    True,  "Panorama artwork 5×630×360"),
     "screenshot_638":   ("screenshot", False, "Screenshot Showcase 638×354 (1 slot)"),
     "screenshot_4grid": ("screenshot", False, "Screenshot 4-grid 4×638×354"),
     "workshop_5slot_150": ("workshop", False, "Workshop 5×150×150"),
@@ -61,7 +51,7 @@ _PRESET_KEYS   = list(UPLOAD_PRESETS.keys())
 class UploadApp(ctk.CTk):
     def __init__(self, preloaded_files: list = None, preset_key: str = None):
         super().__init__()
-        self.title("Steam Workshop Auto-Uploader")
+        self.title("WorkshopArt - Upload Tool")
         self.geometry("760x760")
 
         self._queue: Queue = Queue()
@@ -95,7 +85,7 @@ class UploadApp(ctk.CTk):
         ctk.CTkLabel(top, text="Prefijo del título:").pack(side="left")
         self.title_var = ctk.StringVar(value="WorkshopArt")
         ctk.CTkEntry(top, textvariable=self.title_var, width=240).pack(side="left", padx=8)
-        ctk.CTkLabel(top, text="(se añade ' - Parte i/N')",
+        ctk.CTkLabel(top, text="(se añade ' - i/N' a cada archivo)",
                      text_color="#888").pack(side="left")
 
         # Preset / modo upload
@@ -208,17 +198,18 @@ class UploadApp(ctk.CTk):
         return self._auto_spoof or bool(self.spoof_var.get())
 
     def _update_cookie_banner(self):
-        src = steam_uploader.cookies_source()
-        if src == "firefox":
-            self.banner.configure(text="✅ Cookies: Firefox (automático)",
-                                  text_color="#22c55e")
-        elif src == "file":
-            self.banner.configure(text="✅ Cookies: steam_cookies.json",
+        source = steam_uploader.cookies_source()
+        labels = {"firefox": "Firefox", "chrome": "Chrome", "edge": "Edge",
+                  "file": "steam_cookies.json"}
+        if source in labels:
+            self.banner.configure(text=f"Cookies de Steam: {labels[source]}",
                                   text_color="#22c55e")
         else:
+            install = ("" if steam_uploader.browser_cookies_available()
+                       else "instala browser_cookie3, ")
             self.banner.configure(
-                text="⚠️ Sin cookies. Instala browser_cookie3 y loguéate en Firefox, "
-                     "o crea steam_cookies.json en la raíz.",
+                text=f"Sin cookies de Steam: {install}inicia sesión en Steam con Firefox y "
+                     "ciérralo, o crea steam_cookies.json junto al programa.",
                 text_color="#f59e0b")
 
     # ---------------- File list ----------------
@@ -284,12 +275,15 @@ class UploadApp(ctk.CTk):
             messagebox.showwarning("Nada marcado", "Marca al menos un archivo.")
             return
         if not steam_uploader.cookies_configured():
+            install = ("" if steam_uploader.browser_cookies_available()
+                       else " (hace falta pip install browser_cookie3)")
             messagebox.showerror(
                 "Sin cookies",
                 "No se encontraron cookies de Steam.\n\n"
                 "Opciones:\n"
-                "1) pip install browser_cookie3 + loguéate en Firefox + cierra Firefox.\n"
-                "2) Crea steam_cookies.json en la raíz con sessionid y steamLoginSecure."
+                f"1) Inicia sesión en steamcommunity.com con Firefox y ciérralo{install}.\n"
+                "2) Crea steam_cookies.json junto al programa con sessionid y steamLoginSecure.\n\n"
+                "Chrome y Edge actuales cifran sus cookies y no dejan leer la sesión."
             )
             return
         if not messagebox.askyesno("Confirmar",
@@ -371,15 +365,19 @@ class UploadApp(ctk.CTk):
         self.log.configure(state="disabled")
 
 
+def parse_cli_args(argv: list) -> tuple:
+    """Parse ``[--fragments FILE ...] [--preset KEY]``; returns (files, preset)."""
+    files, preset = [], None
+    if "--fragments" in argv:
+        for value in argv[argv.index("--fragments") + 1:]:
+            if value.startswith("--"):
+                break
+            files.append(Path(value))
+    if "--preset" in argv and argv.index("--preset") + 1 < len(argv):
+        preset = argv[argv.index("--preset") + 1]
+    return files, preset
+
+
 if __name__ == "__main__":
-    _preload = []
-    _preset_key = None
-    if '--fragments' in sys.argv:
-        idx = sys.argv.index('--fragments')
-        _preload = [Path(p) for p in sys.argv[idx + 1:] if not p.startswith('--')]
-    if '--preset' in sys.argv:
-        idx = sys.argv.index('--preset')
-        if idx + 1 < len(sys.argv):
-            _preset_key = sys.argv[idx + 1]
-    app = UploadApp(preloaded_files=_preload, preset_key=_preset_key)
-    app.mainloop()
+    _files, _preset = parse_cli_args(sys.argv[1:])
+    UploadApp(preloaded_files=_files, preset_key=_preset).mainloop()

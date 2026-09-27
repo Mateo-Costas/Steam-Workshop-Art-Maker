@@ -1,84 +1,88 @@
 """
 config.py - Centralized configuration management.
 
-Loads config.json from the app root on startup. If the file doesn't
-exist, writes DEFAULT_CONFIG to disk. Supports dot-notation access
-(e.g., config.get("paths.models")) and deep-merges user overrides
-on top of defaults so new keys are always available after updates.
+Loads config.json from the app folder (see app_paths). Missing keys are
+filled from DEFAULT_CONFIG by a deep merge, so new settings are available
+after updates without touching the user's file. Supports dot-notation access,
+e.g. config.get("paths.models").
 """
 
 import copy
 import json
+import logging
 from pathlib import Path
+from typing import Optional
+
+from app_paths import CONFIG_FILE
+
+logger = logging.getLogger("WorkshopArt.config")
+
 
 class Config:
     """Read/write wrapper around config.json with dot-notation access."""
 
-    # Baseline values used when no config.json exists yet.
-    # Any key missing from the user's file is filled from here via deep-merge.
+    # Relative paths are resolved from the app folder (app_paths.resolve).
     DEFAULT_CONFIG = {
         "paths": {
-            "ffmpeg": "ffmpeg",
-            "realesrgan": ".",
             "models": "SteamWorkshopAppData/models",
-            "temp_dir": "SteamWorkshopAppData/temp"
         },
+        # Workshop Showcase 5-part banner: canvas size and number of columns.
         "steam_profile": {
             "width": 638,
             "height": 354,
             "parts": 5,
-            "min_size_mb": 4.4,
-            "max_size_mb": 4.8
         },
+        # Artwork Showcase main + side panels (height 0 = keep aspect ratio).
         "artwork_showcase": {
             "main_width": 506,
             "side_width": 100,
-            "height": 0
+            "height": 0,
         },
-        "quality": {
-            "default_fps": 24,
-            "max_fps": 60,
-            "contrast": 1.5,
-            "saturation": 1.3
+        "ui": {
+            "language": "ES",
+            "is_anime": True,
+            "scale": 100,
+            "recent_files": [],
         },
-        "gpu": {
-            "default": "auto",
-            "use_gpu": True,
-            "gpu_id": 0
-        },
-        "optimization": {
-            "preserve_quality": True,
-            "auto_optimize_size": True,
-            "auto_detect_content": True
-        }
     }
 
-    def __init__(self, config_path: str = "config.json"):
-        self.config_path = Path(config_path)
+    def __init__(self, config_path: Optional[str] = None):
+        self.config_path = Path(config_path) if config_path else CONFIG_FILE
         self.config = self.load_config()
 
     def load_config(self) -> dict:
-        """Load config from disk, merging with defaults. Returns defaults if file is missing or corrupt."""
+        """Load config from disk merged over the defaults.
+
+        A corrupt file is kept as config.json.bak and replaced by defaults.
+        """
         if self.config_path.exists():
             try:
-                with open(self.config_path, 'r', encoding='utf-8') as f:
+                with open(self.config_path, "r", encoding="utf-8") as f:
                     user_config = json.load(f)
-                    # Deep-merge so new default keys are available even with old config files.
-                    # deepcopy: a shallow copy would let the merge mutate the class-level
-                    # DEFAULT_CONFIG nested dicts, corrupting defaults for later instances.
-                    return self._deep_merge(copy.deepcopy(self.DEFAULT_CONFIG), user_config)
-            except Exception:
-                pass
+                # deepcopy: merging into the class-level dict would corrupt
+                # the defaults for every later instance.
+                return self._deep_merge(copy.deepcopy(self.DEFAULT_CONFIG), user_config)
+            except (OSError, ValueError) as e:
+                logger.warning("config.json ilegible (%s); se guarda copia y se regenera", e)
+                try:
+                    self.config_path.replace(self.config_path.with_suffix(".json.bak"))
+                except OSError:
+                    pass
+        config = copy.deepcopy(self.DEFAULT_CONFIG)
+        self.save_config(config)
+        return config
 
-        # File missing or unreadable — write fresh defaults
-        self.save_config(self.DEFAULT_CONFIG)
-        return copy.deepcopy(self.DEFAULT_CONFIG)
-
-    def save_config(self, config: dict = None):
-        """Persist current (or provided) config dict to config.json."""
-        config = config or self.config
-        with open(self.config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
+    def save_config(self, config: Optional[dict] = None) -> None:
+        """Persist the current (or given) config atomically."""
+        config = config if config is not None else self.config
+        tmp = self.config_path.with_suffix(".json.tmp")
+        try:
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=4, ensure_ascii=False)
+            tmp.replace(self.config_path)
+        except OSError as e:
+            logger.warning("No se pudo guardar config.json: %s", e)
 
     def _deep_merge(self, base: dict, update: dict) -> dict:
         """Recursively merge update into base. Nested dicts are merged; scalars overwrite."""
@@ -90,27 +94,22 @@ class Config:
         return base
 
     def get(self, key_path: str, default=None):
-        """Return a config value by dot-separated path (e.g., 'gpu.use_gpu').
-        Returns default if any segment is missing."""
-        keys = key_path.split('.')
+        """Return a value by dot-separated path (e.g. 'ui.language'), or default."""
         value = self.config
-        for key in keys:
+        for key in key_path.split("."):
             if isinstance(value, dict) and key in value:
                 value = value[key]
             else:
                 return default
         return value
 
-    def set(self, key_path: str, value):
-        """Set a config value by dot-separated path and immediately persist to disk."""
-        keys = key_path.split('.')
-        config = self.config
-
-        # Walk to the parent dict, creating missing intermediate dicts
+    def set(self, key_path: str, value) -> None:
+        """Set a value by dot-separated path and persist it immediately."""
+        keys = key_path.split(".")
+        node = self.config
         for key in keys[:-1]:
-            if key not in config:
-                config[key] = {}
-            config = config[key]
-
-        config[keys[-1]] = value
+            if not isinstance(node.get(key), dict):
+                node[key] = {}
+            node = node[key]
+        node[keys[-1]] = value
         self.save_config()

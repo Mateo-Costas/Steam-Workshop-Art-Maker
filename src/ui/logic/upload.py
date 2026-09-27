@@ -1,150 +1,183 @@
-"""ui.logic.upload - Steam upload helpers: Upload Tool launcher, JS snippets, auto-upload."""
+"""ui.logic.upload - getting fragments onto Steam: snippets, Upload Tool, profile check, ZIP."""
+import re
 import subprocess
 import sys
 import threading
-from pathlib import Path
-from tkinter import messagebox
+import urllib.request
+import zipfile
+from typing import Optional
 
-from ui.logic.common import _NO_WINDOW_FLAGS
+import customtkinter as ctk
+
+from app_paths import APP_DIR
+from i18n import t
+from processing.common import _NO_WINDOW_FLAGS
+from ui import theme
+from ui.logic.common import STEAM_UPLOAD_URL, steam_js_snippet
+from ui.theme import Colors
 
 
 class UploadMixin:
-    """Upload Tool subprocess launcher and cookie-based auto-upload."""
+    """Upload helpers for step 4 and the fragment result dialog."""
 
-    def validate_steam_profile(self):
-        """Stub: Steam profile validator — replaced by the PRO patch at module load."""
-        messagebox.showinfo(
-            "WorkshopArt",
-            "El validador de perfil Steam (nivel, showcases disponibles) es una "
-            "no disponible en esta copia (falta el modulo).\n\n"
-            "Descarga el repositorio completo en:\n"
-            "https://github.com/Mateo-Costas/Steam-Workshop-Art-Maker"
-        )
+    def current_fragments_preset(self) -> Optional[str]:
+        """Preset used for the fragments of the current file (read from their manifest)."""
+        if not self.current_file:
+            return None
+        manifest = self.processor.read_fragments_manifest(self.current_file)
+        preset = (manifest.get("parametros") or {}).get("preset")
+        if preset in self.processor.SHOWCASE_PRESETS:
+            return preset
+        # Manifests written by older versions only name the operation.
+        legacy = {"fragmentar_steam": "workshop_5part",
+                  "fragmentar_artwork_showcase": "artwork_2part",
+                  "fragmentar_artwork_showcase_image": "artwork_2part"}
+        operation = manifest.get("operacion", "")
+        if operation in legacy:
+            return legacy[operation]
+        match = re.match(r"(?:fragmentar_)?showcase(?:_image)?_(.+)$", operation)
+        return match.group(1) if match and match.group(1) in self.processor.SHOWCASE_PRESETS else None
 
-    def export_steam_pack(self):
-        """Stub: ZIP export of fragments + instructions — replaced by the PRO patch."""
-        messagebox.showinfo(
-            "WorkshopArt",
-            "El export ZIP (fragmentos + instrucciones listos para compartir) es una "
-            "no disponible en esta copia (falta el modulo).\n\n"
-            "Descarga el repositorio completo en:\n"
-            "https://github.com/Mateo-Costas/Steam-Workshop-Art-Maker"
-        )
-
-    def _launch_upload_tool(self, fragments=None, preset: str = None):
-        """Launch the Upload Tool as a subprocess, passing fragment paths and preset as CLI args.
-
-        In frozen (compiled) mode, re-invokes the same .exe with --upload-tool. In dev mode,
-        looks for upload_tool.py two levels up; if absent, shows the PRO upgrade prompt.
-        """
-        try:
-            flags = _NO_WINDOW_FLAGS
-            extra = []
-            if fragments:
-                extra += ["--fragments"] + [str(f) for f in fragments]
-            if preset:
-                extra += ["--preset", preset]
-            if getattr(sys, 'frozen', False):
-                # Running as a compiled .exe — pass a flag to the same binary.
-                subprocess.Popen([sys.executable, "--upload-tool"] + extra, **flags)
-            else:
-                upload_tool_path = Path(__file__).parent.parent / "upload_tool.py"
-                if not upload_tool_path.exists():
-                    # upload_tool.py is not included in the public repo — show upgrade prompt.
-                    messagebox.showinfo(
-                        "WorkshopArt",
-                        "El Upload Tool automatico no esta disponible en esta copia (falta el modulo).\n\n"
-                        "Descarga el repositorio completo en:\n"
-                        "https://github.com/Mateo-Costas/Steam-Workshop-Art-Maker\n\n"
-                        "La version gratuita incluye todos los presets y procesamiento IA.\n"
-                        "Puedes subir los fragmentos manualmente siguiendo las instrucciones del README."
-                    )
-                    return
-                subprocess.Popen([sys.executable, str(upload_tool_path)] + extra,
-                                 cwd=str(upload_tool_path.parent), **flags)
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo abrir el Upload Tool:\n{e}")
-
-
-    STEAM_JS_SNIPPET = (
-        "$J('[name=consumer_app_id]').val(480);\n"
-        "$J('[name=file_type]').val(0);\n"
-        "$J('[name=visibility]').val(0);"
-    )
+    def steam_js_for_current(self) -> str:
+        """Console snippet matching the current file's fragments (workshop if unknown)."""
+        preset = self.current_fragments_preset()
+        if not preset:
+            return steam_js_snippet("workshop")
+        cfg = self.processor.SHOWCASE_PRESETS[preset]
+        return steam_js_snippet(cfg["upload_hint"], cfg.get("spoof_dims", False))
 
     def _copy_steam_js(self):
-        """Copiar snippet JS de Steam al portapapeles."""
+        """Copy the right console snippet for the current fragments to the clipboard."""
+        self.root.clipboard_clear()
+        self.root.clipboard_append(self.steam_js_for_current())
+        self.update_status(t("js_copied", fallback="Snippet JS copiado: pégalo en la consola "
+                                                   "del navegador (F12)"), None, "📋")
+
+    def _launch_upload_tool(self, fragments=None, preset: Optional[str] = None):
+        """Open the Upload Tool in its own process with the fragments preloaded."""
+        if fragments is None and self.current_file:
+            fragments = self.processor.list_fragments(self.current_file)
+            preset = preset or self.current_fragments_preset()
+        args = []
+        if fragments:
+            args += ["--fragments"] + [str(f) for f in fragments]
+        if preset:
+            args += ["--preset", preset]
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--upload-tool"] + args
+        else:
+            cmd = [sys.executable, str(APP_DIR / "upload_tool.py")] + args
         try:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(self.STEAM_JS_SNIPPET)
-            self.root.update()
-            self.log_message("Snippet JS copiado al portapapeles", "SUCCESS")
-            self._ui_info("Copiado", "Snippet JS copiado al portapapeles.\nPégalo en la consola del navegador (F12).")
-        except Exception as e:
-            self._ui_error("Error", f"No se pudo copiar: {e}")
+            subprocess.Popen(cmd, cwd=str(APP_DIR), **_NO_WINDOW_FLAGS)
+        except OSError as e:
+            self._ui_error(t("upload_tool", fallback="Upload Tool"), str(e))
 
+    # ------------------------------------------------------------------
+    # Steam profile check
+    # ------------------------------------------------------------------
+    def validate_steam_profile(self):
+        """Check that a Steam profile is public and has level 10+ (needed for showcases)."""
+        from fragment_preview import _ProfileFetcher
 
-    def _auto_upload_selected(self, parent_win):
-        """Upload the checked fragments to Steam Workshop using the private steam_uploader module.
+        dlg = ctk.CTkToplevel(self.root)
+        dlg.title(t("validate_profile", fallback="Validar perfil"))
+        dlg.geometry("460x280")
+        dlg.transient(self.root)
+        dlg.after(50, dlg.grab_set)
+        ctk.CTkLabel(dlg, text=t("profile_prompt", fallback="Tu nombre personalizado o la URL de tu perfil:"),
+                     font=theme.font("SMALL")).pack(pady=(18, 4))
+        entry_var = ctk.StringVar(value=self.config.get("ui.steam_vanity", ""))
+        ctk.CTkEntry(dlg, textvariable=entry_var, width=360).pack(pady=6)
+        result_label = ctk.CTkLabel(dlg, text="", font=theme.font("SMALL"), justify="left",
+                                    wraplength=410)
+        result_label.pack(pady=6, padx=16)
 
-        steam_uploader.py and steam_cookies.json are gitignored (personal/PRO only). Shows an
-        informative warning if the module or cookies are missing. Upload runs in a daemon thread
-        with progress dispatched through update_queue.
-        """
-        # Lazy import: this is a private module not shipped in the public repo.
+        def show(text, color=Colors.TEXT_SECONDARY):
+            self.update_queue.put((lambda: result_label.winfo_exists()
+                                   and result_label.configure(text=text, text_color=color), ()))
+
+        def validate():
+            raw = entry_var.get().strip()
+            if not raw:
+                return
+            self.config.set("ui.steam_vanity", raw)
+            if raw.startswith("http"):
+                url = raw
+            elif raw.isdigit() and len(raw) == 17:
+                url = f"https://steamcommunity.com/profiles/{raw}"
+            else:
+                url = f"https://steamcommunity.com/id/{raw}"
+
+            def worker():
+                try:
+                    show(t("profile_checking", fallback="Consultando Steam..."))
+                    data = _ProfileFetcher().fetch(url, lambda _m: None)
+                    lines = [t("profile_found", fallback="✅ Perfil encontrado: {name}", name=data["name"])]
+                    level = None
+                    try:
+                        request = urllib.request.Request(url, headers=_ProfileFetcher._HEADERS)
+                        with urllib.request.urlopen(request, timeout=12) as response:
+                            html = response.read().decode("utf-8", errors="replace")
+                        match = re.search(r'friendPlayerLevelNum">\s*(\d+)', html)
+                        level = int(match.group(1)) if match else None
+                    except OSError:
+                        pass
+                    if level is None:
+                        lines.append(t("profile_level_unknown",
+                                       fallback="ℹ️ No se pudo leer el nivel (los showcases requieren nivel 10)"))
+                        color = Colors.TEXT_SECONDARY
+                    elif level >= 10:
+                        lines.append(t("profile_level_ok", fallback="✅ Nivel {level}: puedes usar showcases",
+                                       level=level))
+                        color = Colors.SUCCESS
+                    else:
+                        lines.append(t("profile_level_low",
+                                       fallback="⚠️ Nivel {level}: los showcases requieren nivel 10",
+                                       level=level))
+                        color = Colors.WARNING
+                    show("\n".join(lines), color)
+                except Exception as e:
+                    show(f"❌ {e}", Colors.DANGER)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        ctk.CTkButton(dlg, text=t("validate_btn", fallback="Validar"), command=validate,
+                      fg_color=Colors.ACCENT, height=34).pack(pady=8)
+
+    # ------------------------------------------------------------------
+    # ZIP export
+    # ------------------------------------------------------------------
+    def export_steam_pack(self):
+        """Pack the current fragments plus upload instructions into a ZIP."""
+        if not self._require_file():
+            return
+        fragments = self.processor.list_fragments(self.current_file)
+        if not fragments:
+            self._ui_warn(t("export_zip", fallback="Exportar ZIP"),
+                          t("no_fragments_yet", fallback="Aún no hay fragmentos: usa el paso 3."))
+            return
+        preset = self.current_fragments_preset()
+        readme = t("zip_readme", fallback=(
+            "WorkshopArt - pack para Steam\n\n"
+            "Formato: {preset}\nArchivos: {count}\n\n"
+            "Cómo subirlos:\n"
+            "1. Abre {url}\n"
+            "2. Abre la consola del navegador (F12 -> Console), pega este código y pulsa Enter:\n\n"
+            "{js}\n\n"
+            "3. Sube cada archivo, ponle título y guarda (repite para cada parte).\n"
+            "4. En tu perfil: Editar perfil -> Showcase -> asigna cada pieza a su hueco.\n\n"
+            "Los showcases requieren una cuenta de Steam de nivel 10 o más.\n"),
+            preset=self.preset_title(preset) if preset else "?", count=len(fragments),
+            url=STEAM_UPLOAD_URL, js=self.steam_js_for_current())
+        zip_path = fragments[0].parent / f"{self.current_file.stem}_steam_pack.zip"
         try:
-            import steam_uploader
-        except ImportError:
-            self._ui_warn(
-                "Auto-upload no disponible",
-                "El módulo privado 'steam_uploader' no está instalado.\n\n"
-                "Para habilitarlo, coloca src/steam_uploader.py y steam_cookies.json "
-                "(ambos gitignoreados)."
-            )
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for fragment in fragments:
+                    zf.write(fragment, fragment.name)
+                zf.writestr("LEEME.txt", readme)
+        except OSError as e:
+            self._ui_error(t("export_zip", fallback="Exportar ZIP"), str(e))
             return
-
-        if not steam_uploader.cookies_configured():
-            self._ui_warn(
-                "Cookies no disponibles",
-                "El uploader necesita cookies de Steam. Opciones:\n\n"
-                "1) Instala browser_cookie3 (pip install browser_cookie3) y loguéate en "
-                "Steam desde Firefox. Cierra Firefox antes de subir.\n\n"
-                "2) O crea 'steam_cookies.json' en la raíz con las claves "
-                "sessionid y steamLoginSecure (F12 en steamcommunity.com → "
-                "Application → Cookies)."
-            )
-            return
-        src = steam_uploader.cookies_source()
-        self.log_message(f"Fuente de cookies Steam: {src}", "INFO")
-
-        selected = [info['path'] for part, (var, info) in self._fragment_checkboxes.items() if var.get()]
-        if not selected:
-            self._ui_warn("Nada que subir", "No has marcado ningún fragmento.")
-            return
-
-        if not messagebox.askyesno("Confirmar auto-upload",
-                                   f"Se subirán {len(selected)} fragmentos a Steam Workshop.\n\n¿Continuar?"):
-            return
-
-        def worker():
-            def progress(i, total, msg):
-                # Dispatch both log and status updates via update_queue (worker -> main thread).
-                self.update_queue.put((self.log_message, (f"[Upload {i}/{total}] {msg}", "INFO")))
-                self.update_queue.put((self.update_status, (f"Subiendo {i}/{total}...", int(i*100/total), "🚀")))
-            try:
-                results = steam_uploader.upload_fragments(selected, progress_cb=progress)
-                ok = sum(1 for _, b, _ in results if b)
-                fail = len(results) - ok
-                summary = f"Subidos: {ok}/{len(results)}\n\n"
-                for path, good, msg in results:
-                    summary += f"{'✅' if good else '❌'} {path.name}: {msg}\n"
-                if fail == 0:
-                    self._ui_info("Auto-upload completado", summary)
-                else:
-                    self._ui_error("Auto-upload con errores", summary)
-            except Exception as e:
-                self._ui_error("Error en auto-upload", str(e))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-
+        self.log_message(f"Pack exportado: {zip_path}", "SUCCESS")
+        self._ui_info(t("export_zip", fallback="Exportar ZIP"),
+                      t("saved_in", fallback="Guardado en:\n{path}", path=zip_path))

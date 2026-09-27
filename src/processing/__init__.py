@@ -1,8 +1,12 @@
 """processing - core media-processing engine for WorkshopArt.
 
-Split from the former monolithic processor.py (2900+ lines) into one module
-per domain. SteamProcessor is assembled here from the domain mixins;
-src/processor.py re-exports it so existing imports keep working unchanged.
+One module per domain, assembled into SteamProcessor here:
+    base        workspace folders, manifests, tool and GPU discovery
+    frames      frame extraction and AI upscaling
+    gif_encode  video/frames -> GIF, gifsicle, Steam trailer patch
+    splitting   showcase presets and the shared fragment encoder
+    enhance     color adjustments
+    shrink      size-cap optimizer
 """
 from processing.base import SteamProcessorBase
 from processing.frames import FramesMixin
