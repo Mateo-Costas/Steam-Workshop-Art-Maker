@@ -3,24 +3,23 @@
 WorkshopArt - main entry point.
 
 Bootstraps the application: forces UTF-8 I/O, creates the SteamWorkshopAppData
-tree, downloads missing tools on first run (FFmpeg, Real-ESRGAN, RIFE, gifski)
-behind a splash screen, then launches the main window. ``--upload-tool`` opens
-the Steam upload tool instead (used by the compiled .exe).
+tree, downloads missing tools on first run (FFmpeg, Real-ESRGAN/Real-CUGAN,
+gifski; RIFE is fetched the first time it is used) behind a splash screen,
+then launches the main window. ``--upload-tool`` opens the Steam upload tool
+instead (used by the compiled .exe).
 """
 
 import io
 import queue
 import sys
-import tarfile
 import threading
 import time
-import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 import app_paths  # noqa: E402  (needs the src/ path above)
-from app_paths import APP_VERSION, DATA_DIR, LOGS_DIR, RIFE_DIR, make_temp_dir  # noqa: E402
+from app_paths import APP_VERSION, LOGS_DIR, make_temp_dir  # noqa: E402
 
 _LOG_MAX_BYTES = 5 * 1024 * 1024
 
@@ -58,86 +57,19 @@ import tkinter as tk  # noqa: E402
 from tkinter import messagebox, ttk  # noqa: E402
 
 from app_paths import find_tool  # noqa: E402
-from downloads import download_file  # noqa: E402
-
-FFMPEG_URL = ("https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
-              "ffmpeg-master-latest-win64-gpl.zip")
-RIFE_URL = ("https://github.com/nihui/rife-ncnn-vulkan/releases/download/20221029/"
-            "rife-ncnn-vulkan-20221029-windows.zip")
-GIFSKI_API = "https://api.github.com/repos/ImageOptim/gifski/releases/latest"
-GIFSKI_FALLBACK_URL = ("https://github.com/ImageOptim/gifski/releases/download/1.34.0/"
-                       "gifski-1.34.0.tar.xz")
+from tools import install_ffmpeg, install_gifski, rife_installed  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Tool installers (run in a worker thread; ``log`` reports to the splash)
+# First-run checks (run in a worker thread; ``log`` reports to the splash)
 # ---------------------------------------------------------------------------
-
-def _extract_member(archive: Path, wanted: str, dest: Path) -> bool:
-    """Copy the first archive member whose file name is ``wanted`` to ``dest``."""
-    if archive.name.endswith((".tar.xz", ".tar.gz", ".tgz")):
-        with tarfile.open(archive) as tf:
-            for member in tf.getmembers():
-                if member.isfile() and Path(member.name).name.lower() == wanted:
-                    dest.write_bytes(tf.extractfile(member).read())
-                    return True
-        return False
-    with zipfile.ZipFile(archive) as zf:
-        for name in zf.namelist():
-            if Path(name).name.lower() == wanted:
-                dest.write_bytes(zf.read(name))
-                return True
-    return False
-
-
-def install_ffmpeg(work: Path, log) -> None:
-    archive = download_file(FFMPEG_URL, work / "ffmpeg.zip", "FFmpeg", log)
-    if not _extract_member(archive, "ffmpeg.exe", DATA_DIR / "ffmpeg.exe"):
-        raise RuntimeError("ffmpeg.exe no esta en el archivo descargado")
-
-
-def install_gifski(work: Path, log) -> None:
-    """gifski publishes a .tar.xz with binaries for every OS (win/gifski.exe)."""
-    import requests
-    url = GIFSKI_FALLBACK_URL
-    try:
-        release = requests.get(GIFSKI_API, timeout=15,
-                               headers={"Accept": "application/vnd.github+json"}).json()
-        for asset in release.get("assets", []):
-            if asset["name"].endswith((".tar.xz", ".zip")) and "deb" not in asset["name"]:
-                url = asset["browser_download_url"]
-                break
-    except (requests.RequestException, ValueError, KeyError) as e:
-        log(f"GitHub API no disponible ({e}), usando gifski 1.34.0", None)
-    archive = download_file(url, work / Path(url).name, "gifski", log)
-    if not _extract_member(archive, "gifski.exe", DATA_DIR / "gifski.exe"):
-        raise RuntimeError("gifski.exe no esta en el archivo descargado")
-
-
-def install_rife(work: Path, log) -> None:
-    archive = download_file(RIFE_URL, work / "rife.zip", "RIFE", log)
-    with zipfile.ZipFile(archive) as zf:
-        for member in zf.infolist():
-            parts = Path(member.filename).parts
-            if member.is_dir() or len(parts) < 2:
-                continue
-            name = parts[-1]
-            if name.lower().endswith((".exe", ".dll")):
-                dest = DATA_DIR / name
-            elif parts[-2].startswith("rife") and name.endswith((".bin", ".param")):
-                dest = RIFE_DIR / parts[-2] / name
-            else:
-                continue
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(zf.read(member))
-
-
-def _rife_models_present() -> bool:
-    return any(RIFE_DIR.glob("rife-*/*.bin")) or any(app_paths.APP_DIR.glob("rife-*/*.bin"))
-
 
 def check_dependencies(log) -> bool:
-    """Verify every tool, downloading what is missing. False if FFmpeg is unavailable."""
+    """Verify every tool, downloading what is missing. False if FFmpeg is unavailable.
+
+    RIFE (~410 MB) is not downloaded here: step 2 offers it the first time
+    "Smooth animation" is used.
+    """
     from config import Config
     from models import ModelManager
 
@@ -162,19 +94,16 @@ def check_dependencies(log) -> bool:
             if not manager.download_all_models(log):
                 log("Modelos de IA no disponibles: puedes descargarlos luego desde el paso 2", None)
 
-        optional = (
-            ("RIFE", lambda: find_tool("rife-ncnn-vulkan") and _rife_models_present(), install_rife),
-            ("gifski", lambda: find_tool("gifski"), install_gifski),
-        )
-        for label, present, installer in optional:
-            if present():
-                log(f"{label} disponible", None)
-                continue
-            log(f"Descargando {label}...", 0)
+        if find_tool("gifski"):
+            log("gifski disponible", None)
+        else:
+            log("Descargando gifski...", 0)
             try:
-                installer(work, log)
-            except Exception as e:  # optional tools: the app works without them
-                log(f"{label} no disponible ({e})", None)
+                install_gifski(work, log)
+            except Exception as e:  # optional: FFmpeg encodes the GIFs without it
+                log(f"gifski no disponible ({e})", None)
+        log("RIFE disponible" if rife_installed()
+            else "RIFE se descargará la primera vez que lo uses (paso 2)", None)
         return True
     finally:
         import shutil

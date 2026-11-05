@@ -2,10 +2,10 @@
 
 <div align="center">
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey?logo=windows)
 ![AI](https://img.shields.io/badge/AI-Real--ESRGAN%20%7C%20Real--CUGAN%20%7C%20RIFE-orange)
-![Version](https://img.shields.io/badge/Version-2.1-blue)
+![Version](https://img.shields.io/badge/Version-2.2-blue)
 ![Lang](https://img.shields.io/badge/Lang-ES%20%7C%20EN%20%7C%20PT--BR-green)
 
 **Animated GIF artwork for every Steam profile showcase.**
@@ -19,6 +19,22 @@ Turn videos, GIFs and images into upload-ready pieces for the Artwork, Screensho
 ---
 
 The full app is free for personal use. The source is public so you can read and verify it, but it is **not** open source: see [LICENSE](LICENSE).
+
+---
+
+## What's new in v2.2
+
+A security and speed release.
+
+- **Security fixes**: Pillow 13 (more than 40 CVEs fixed in the image decoders), requests 2.33, opencv-python 4.8.1.78 and pytest 9.0.3. Python 3.11 or newer is now required (Pillow 13 dropped 3.10, which is end-of-life).
+- **Verified downloads**: every tool the app downloads and runs (FFmpeg, gifski, gifsicle, Real-ESRGAN, Real-CUGAN, RIFE) is checked against its SHA-256 before it is used, and archives are extracted by file name only.
+- **Safer inputs**: images are opened only with the decoders the app needs (GIF, PNG, JPEG, BMP, WEBP), so a disguised TIFF/PDF/EPS file is refused; damaged GIFs no longer crash the app; the profile check only contacts steamcommunity.com; the Upload Tool only reads and sends cookies of steamcommunity.com / steampowered.com.
+- **Faster fragmenting**: the source is decoded once for all the pieces instead of once per piece, and the quality search tries the best quality first and then searches with the heaviest piece only. gifski runs up to 7 times less often (a set that fits at full quality takes one pass instead of seven; one that needs a lower frame rate, about half the runs).
+- **Faster color adjustments**: GIF frames are adjusted in parallel (about 2x on a 4-core CPU).
+- **Cancel really cancels**: the Cancel button now stops FFmpeg, gifski, Real-ESRGAN, Real-CUGAN and RIFE at once, and never leaves half a set of fragments behind.
+- **Color styles**: Original, Soft, Vivid, Intense, Warm and Cool set the five sliders in one click, and the sliders keep their values between sessions.
+- **Lighter first launch**: RIFE (~410 MB) is downloaded the first time you use *Smooth animation* instead of on first launch.
+- **New-version notice**: a button in the header tells you when a new release is out (one anonymous request to GitHub per day; turn it off in Help).
 
 ---
 
@@ -45,13 +61,13 @@ A quality release: no new features, everything that was there now works as inten
 - **10 showcase presets** covering every profile layout (table below), with a live preview of the cut before fragmenting.
 - **AI upscaling** with Real-ESRGAN and Real-CUGAN (GPU via Vulkan, CPU fallback). Tell the app whether your content is anime and it picks the best model.
 - **Frame interpolation** with RIFE (2x or 4x frames) for smoother animations.
-- **Color adjustments**: contrast, saturation, vibrance, sharpness and temperature, with an animated live preview.
+- **Color adjustments**: contrast, saturation, vibrance, sharpness and temperature, with an animated live preview and one-click styles.
 - **Video → GIF** with trim, frame rate and size options.
 - **1-click pipeline**: AI + colors + fragmentation in one go.
 - **≤ 5 MB optimizer** for GIFs you already have, keeping a set of pieces in sync.
 - **Steam tools**: console snippet per format, automatic Upload Tool, profile check (public, level 10+) and ZIP export with instructions.
 - **Interface in Spanish, English and Portuguese**, adjustable text size, drag & drop, keyboard shortcuts.
-- **Zero setup**: FFmpeg, gifski, gifsicle, the AI models and RIFE are downloaded on first launch.
+- **Zero setup**: FFmpeg, gifski, gifsicle and the AI models are downloaded (and SHA-256 verified) on first launch; RIFE the first time you use it.
 
 ---
 
@@ -79,7 +95,7 @@ The source is scaled to fill the layout and center-cropped (never stretched). Pr
 | | |
 |---|---|
 | **OS** | Windows 10 / 11 (64-bit) |
-| **Python** | 3.10 or newer (only to run from source) |
+| **Python** | 3.11 or newer (only to run from source) |
 | **GPU** | Any Vulkan-capable GPU recommended for the AI (NVIDIA, AMD, Intel Arc). CPU works, slower. |
 | **Disk** | About 1 GB for the tools and models downloaded on first launch |
 | **Internet** | Needed on first launch for those downloads |
@@ -97,7 +113,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-On first launch the app downloads FFmpeg, gifski, gifsicle, Real-ESRGAN, Real-CUGAN and RIFE into `SteamWorkshopAppData/` next to `main.py`. Optional extras:
+On first launch the app downloads FFmpeg, gifski, gifsicle, Real-ESRGAN and Real-CUGAN into `SteamWorkshopAppData/` next to `main.py` (RIFE when you first use it). Every archive is checked against its SHA-256 before anything is extracted. Optional extras:
 
 ```bash
 pip install playwright browser_cookie3   # automatic upload with the Upload Tool
@@ -197,10 +213,13 @@ Steam-Workshop-Art-Maker/
     ├── app_paths.py        # app folders, version, tool lookup
     ├── config.py           # config.json
     ├── i18n.py             # ES / EN / PT texts
-    ├── gif_utils.py        # GIF timing and reading Steam-patched files
+    ├── gif_utils.py        # GIF timing, Steam-patched files, allowed image formats
     ├── video_utils.py      # video probing and thumbnails (OpenCV)
-    ├── downloads.py        # download helper
+    ├── downloads.py        # SHA-256 verified downloads
+    ├── tools.py            # FFmpeg / gifski / RIFE installers (pinned releases + checksums)
     ├── models.py           # AI model registry and downloads
+    ├── steam_profile.py    # public profile lookups (steamcommunity.com only)
+    ├── updates.py          # new-version notice (GitHub Releases)
     ├── processing/         # engine: fragmentation, encoding, AI, colors, size optimizer
     ├── ui/                 # main window, the four steps, widgets, theme
     │   └── logic/          # actions behind the buttons, by domain
@@ -216,6 +235,8 @@ Steam-Workshop-Art-Maker/
 ```bash
 pip install -r requirements-dev.txt playwright browser_cookie3
 pytest tests                      # engine tests (needs the FFmpeg the app downloads)
+python tests/ui_check.py          # drives the real window through the whole workflow
+pip-audit -r requirements.txt     # known vulnerabilities in the dependencies
 pyinstaller WorkshopArt.spec      # -> dist/WorkshopArt.exe
 ```
 
@@ -227,6 +248,7 @@ pyinstaller WorkshopArt.spec      # -> dist/WorkshopArt.exe
 |---|---|
 | Windows SmartScreen blocks the .exe | *More info → Run anyway*. The exe is not code-signed; the full source is here to verify it. |
 | First launch takes a while | The tools and models are being downloaded; progress is shown on the startup screen. |
+| "El SHA-256 no coincide" | The download was damaged or altered and was deleted. Check your connection (or proxy/antivirus) and try again. |
 | GPU not detected | Update the graphics drivers (Vulkan support is required). |
 | The AI fails on the GPU | Turn off *Use GPU* in step 2 and try again. |
 | A preset does not fit in 5 MB | Trim the clip; long or very detailed animations cannot fit. |

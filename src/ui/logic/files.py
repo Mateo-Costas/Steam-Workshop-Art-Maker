@@ -6,7 +6,7 @@ import customtkinter as ctk
 from PIL import Image, ImageSequence, ImageTk
 from tkinter import filedialog
 
-from gif_utils import open_gif, read_timing
+from gif_utils import open_gif, open_image, read_timing
 from i18n import t
 from ui import theme
 from ui.logic.common import IMAGE_EXTS, MEDIA_EXTS, VIDEO_EXTS, steam_format_suggestion
@@ -190,7 +190,7 @@ class FilesMixin:
                 self._start_preview(preview_frame, lambda: sample_frames(
                     path, _PREVIEW_MAX_FRAMES, _THUMB, lambda: self.current_file != path))
             elif ext in IMAGE_EXTS:
-                with Image.open(path) as img:
+                with open_image(path) as img:
                     width, height = img.size
                     thumb = img.convert("RGBA")
                 thumb.thumbnail(_THUMB, Image.Resampling.LANCZOS)

@@ -286,6 +286,11 @@ class UploadApp(ctk.CTk):
                 "Chrome y Edge actuales cifran sus cookies y no dejan leer la sesión."
             )
             return
+        workshop_appid = (self.workshop_appid_var.get() or "480").strip()
+        if self.mode_var.get() == "workshop" and not workshop_appid.isdigit():
+            messagebox.showwarning("appid no válido",
+                                   "El appid de Workshop debe ser un número (480 por defecto).")
+            return
         if not messagebox.askyesno("Confirmar",
                                    f"Subir {len(selected)} archivos a Steam Workshop.\n\n"
                                    "Asegúrate de que Firefox esté CERRADO si usas sus cookies.\n\n"
@@ -299,7 +304,6 @@ class UploadApp(ctk.CTk):
 
         title_prefix = (self.title_var.get() or "WorkshopArt").strip()
         mode = self.mode_var.get()
-        workshop_appid = (self.workshop_appid_var.get() or "480").strip()
         spoof = self._effective_spoof()
         pubids_raw = self.pubids_var.get().strip()
         pubids = ([s.strip() for s in pubids_raw.replace(";", ",").split(",")

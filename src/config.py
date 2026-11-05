@@ -10,6 +10,7 @@ e.g. config.get("paths.models").
 import copy
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -43,11 +44,22 @@ class Config:
             "is_anime": True,
             "scale": 100,
             "recent_files": [],
+            # Last values of the step-2 color sliders (restored on launch).
+            "colors": {"contrast": 1.5, "saturation": 1.3, "vibrance": 0.0,
+                       "sharpness": 0.0, "temperature": 0.0},
+        },
+        # New-version notice (see updates.py); "check": false turns it off.
+        "updates": {
+            "check": True,
+            "last_check": 0,
+            "latest": {},
         },
     }
 
     def __init__(self, config_path: Optional[str] = None):
         self.config_path = Path(config_path) if config_path else CONFIG_FILE
+        # set()/save_config() run from the UI and from worker threads.
+        self._lock = threading.RLock()
         self.config = self.load_config()
 
     def load_config(self) -> dict:
@@ -76,13 +88,14 @@ class Config:
         """Persist the current (or given) config atomically."""
         config = config if config is not None else self.config
         tmp = self.config_path.with_suffix(".json.tmp")
-        try:
-            self.config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=4, ensure_ascii=False)
-            tmp.replace(self.config_path)
-        except OSError as e:
-            logger.warning("No se pudo guardar config.json: %s", e)
+        with self._lock:
+            try:
+                self.config_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(config, f, indent=4, ensure_ascii=False)
+                tmp.replace(self.config_path)
+            except OSError as e:
+                logger.warning("No se pudo guardar config.json: %s", e)
 
     def _deep_merge(self, base: dict, update: dict) -> dict:
         """Recursively merge update into base. Nested dicts are merged; scalars overwrite."""
@@ -106,10 +119,11 @@ class Config:
     def set(self, key_path: str, value) -> None:
         """Set a value by dot-separated path and persist it immediately."""
         keys = key_path.split(".")
-        node = self.config
-        for key in keys[:-1]:
-            if not isinstance(node.get(key), dict):
-                node[key] = {}
-            node = node[key]
-        node[keys[-1]] = value
-        self.save_config()
+        with self._lock:
+            node = self.config
+            for key in keys[:-1]:
+                if not isinstance(node.get(key), dict):
+                    node[key] = {}
+                node = node[key]
+            node[keys[-1]] = value
+            self.save_config()

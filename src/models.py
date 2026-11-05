@@ -9,8 +9,9 @@ Two upscaling engines are supported:
     frames on some content (pure black, saturated colors), so it is not offered.
 
 download_all_models() fetches the official release ZIPs into
-SteamWorkshopAppData/; check_available_models() reports only the models whose
-files are actually on disk.
+SteamWorkshopAppData/ (each one checked against its SHA-256 before it is
+opened); check_available_models() reports only the models whose files are
+actually on disk.
 """
 
 import logging
@@ -23,13 +24,16 @@ from typing import Callable, Dict, List, Optional
 
 from app_paths import APP_DIR, DATA_DIR, find_tool
 from downloads import download_file
+from tools import member_parts, safe_member_name
 
 logger = logging.getLogger("WorkshopArt.models")
 
 ESRGAN_URL = ("https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/"
               "realesrgan-ncnn-vulkan-20220424-windows.zip")
+ESRGAN_SHA256 = "abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d"
 CUGAN_URL = ("https://github.com/nihui/realcugan-ncnn-vulkan/releases/download/20220728/"
              "realcugan-ncnn-vulkan-20220728-windows.zip")
+CUGAN_SHA256 = "c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01"
 
 #: File names of Real-CUGAN networks; an old version of the downloader dumped
 #: them into the ESRGAN models folder, where they must not be listed.
@@ -186,14 +190,14 @@ class ModelManager:
             if not (self.check_executable() and self._has_model_files("realesrgan-x4plus")):
                 zip_path = download_file(
                     ESRGAN_URL, work / "esrgan.zip", "Real-ESRGAN",
-                    lambda m, p: report(m, 5 + p * 0.45))
+                    lambda m, p: report(m, 5 + p * 0.45), sha256=ESRGAN_SHA256)
                 report("Extrayendo Real-ESRGAN...", 50)
                 self._extract_esrgan(zip_path)
             if not self.cugan_exe_path:
                 try:
                     zip_path = download_file(
                         CUGAN_URL, work / "cugan.zip", "Real-CUGAN",
-                        lambda m, p: report(m, 55 + p * 0.40))
+                        lambda m, p: report(m, 55 + p * 0.40), sha256=CUGAN_SHA256)
                     report("Extrayendo Real-CUGAN...", 95)
                     self._extract_cugan(zip_path)
                 except Exception as e:  # CUGAN is optional
@@ -215,7 +219,7 @@ class ModelManager:
         """exe + OpenMP runtime DLL into SteamWorkshopAppData/, models into models_dir."""
         with zipfile.ZipFile(zip_path) as zf:
             for member in zf.infolist():
-                name = Path(member.filename).name
+                name = safe_member_name(member.filename)
                 if member.is_dir() or not name:
                     continue
                 if name.endswith((".bin", ".param")):
@@ -234,10 +238,10 @@ class ModelManager:
                     if info.get("engine") == "realcugan"}
         with zipfile.ZipFile(zip_path) as zf:
             for member in zf.infolist():
-                parts = Path(member.filename).parts
-                if member.is_dir() or len(parts) < 2:
+                parts = member_parts(member.filename)
+                name = safe_member_name(member.filename)
+                if member.is_dir() or len(parts) < 2 or not name:
                     continue
-                name = parts[-1]
                 if parts[-2] in families and name.endswith((".bin", ".param")):
                     dest = DATA_DIR / parts[-2] / name
                 elif name.lower().endswith((".exe", ".dll")):

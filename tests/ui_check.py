@@ -182,6 +182,40 @@ def steps_and_color_preview():
     wait_for(lambda: len(app._steps[1].color_preview._photos) > 1, 30, "preview de color")
 
 
+def color_styles():
+    app._stepper.select(1)
+    app.apply_color_preset("original")
+    pump(1.2)  # the sliders are saved 800 ms after the last change
+    check(app.contrast_var.get() == 1.0 and app.temperature_var.get() == 0.0, "estilo Original")
+    check((app.config.get("ui.colors") or {}).get("contrast") == 1.0, "ajustes de color guardados")
+    button = find_button(app._steps[1], "Cálido")
+    check(button is not None, "botón de estilo Cálido")
+    if button is not None:
+        button.invoke()
+        pump(0.3)
+        check(app.temperature_var.get() > 0, "estilo Cálido aplicado")
+    app.apply_color_preset("vivid")
+    pump(0.5)
+
+
+def update_notice():
+    import updates
+    import webbrowser
+    opened = []
+    real_latest, real_open = updates.latest_release, webbrowser.open
+    updates.latest_release = lambda: {
+        "version": "99.0", "url": "https://github.com/Mateo-Costas/Steam-Workshop-Art-Maker/releases/tag/v99.0"}
+    webbrowser.open = opened.append
+    try:
+        app._check_for_updates(force=True)
+        wait_for(lambda: app._update_btn.winfo_ismapped(), 10, "botón de nueva versión")
+        check("99.0" in app._update_btn.cget("text"), "texto del botón de actualización")
+        app._update_btn.invoke()
+        check(opened and opened[0].endswith("/v99.0"), "abre la página de la versión")
+    finally:
+        updates.latest_release, webbrowser.open = real_latest, real_open
+
+
 def colors_only():
     source = app.current_file
     app.enhance_colors_only()
@@ -351,6 +385,8 @@ def cancel():
 pump(2.0)
 for label, scenario in (("abrir archivos", load_files),
                         ("pasos y preview de color", steps_and_color_preview),
+                        ("estilos de color", color_styles),
+                        ("aviso de nueva versión", update_notice),
                         ("solo colores", colors_only),
                         ("video a GIF", video_to_gif),
                         ("fragmentar y JS por formato", fragments),

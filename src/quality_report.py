@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
-from gif_utils import open_gif, read_timing
+from gif_utils import open_gif, open_image, read_timing
 from video_utils import first_frame, is_video, probe_video
 
 # matplotlib is imported lazily inside the chart-rendering method: importing
@@ -820,5 +820,5 @@ def _first_frame_rgb(path: Path) -> Image.Image:
             return img.convert("RGB")
     if is_video(path):
         return first_frame(path)
-    with Image.open(path) as img:
+    with open_image(path) as img:
         return img.convert("RGB")

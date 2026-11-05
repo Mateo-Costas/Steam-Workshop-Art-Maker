@@ -5,19 +5,17 @@ from pathlib import Path
 from tkinter import messagebox
 
 import customtkinter as ctk
-from PIL import Image
 
-from app_paths import APP_DIR, RIFE_DIR, find_tool, make_temp_dir
-from gif_utils import MAX_GIF_FPS
+import tools
+from app_paths import find_tool, make_temp_dir
+from gif_utils import MAX_GIF_FPS, open_image
 from i18n import t
 from processing.common import run_tool, tail
+from processing.enhance import COLOR_PRESETS
 from ui import theme
 from ui.logic.common import IMAGE_EXTS, VIDEO_EXTS
 from ui.theme import Colors
 from video_utils import probe_video
-
-#: RIFE model folders, best first (searched in SteamWorkshopAppData/rife and the app folder).
-_RIFE_MODELS = ("rife-v4.6", "rife-v4", "rife-v3.1", "rife-v3.0", "rife-HD")
 
 
 class ProcessingMixin:
@@ -52,7 +50,7 @@ class ProcessingMixin:
             frames_in.mkdir()
             static = source.suffix.lower() in IMAGE_EXTS
             if static:
-                with Image.open(source) as img:
+                with open_image(source) as img:
                     img.convert("RGB").save(frames_in / "frame_000001.png")
                 fps = 1.0
             else:
@@ -61,7 +59,8 @@ class ProcessingMixin:
                 self.update_status(t("status_extracting", fallback="Extrayendo frames..."), low, "🎞️")
                 frames, fps = self.processor.extract_gif_frames(
                     source, frames_in, max_fps=24 if source.suffix.lower() in VIDEO_EXTS else 50,
-                    max_width=int(self.config.get("steam_profile.width", 638)))
+                    max_width=int(self.config.get("steam_profile.width", 638)),
+                    should_cancel=self._is_cancelled)
                 if not frames:
                     raise RuntimeError(t("err_extract_frames", fallback="No se pudieron extraer los frames"))
                 self.log_message(f"Frames extraidos: {len(frames)} a {fps:.2f} fps")
@@ -69,7 +68,8 @@ class ProcessingMixin:
 
             upscaled = self.processor.upscale_frames_batch(frames_in, frames_out, model_id,
                                                            use_gpu=use_gpu,
-                                                           progress_callback=ai_progress)
+                                                           progress_callback=ai_progress,
+                                                           should_cancel=self._is_cancelled)
             if not upscaled:
                 raise RuntimeError(t("err_ai_failed",
                                      fallback="El procesamiento con IA ha fallado. Prueba con otro "
@@ -83,7 +83,8 @@ class ProcessingMixin:
             else:
                 output = out_dir / f"{source.stem}_AI.gif"
                 self.update_status(t("status_building_gif", fallback="Creando GIF..."), high, "🎞️")
-                if not self.processor.create_optimized_gif(upscaled, output, fps):
+                if not self.processor.create_optimized_gif(upscaled, output, fps,
+                                                           should_cancel=self._is_cancelled):
                     raise RuntimeError(t("err_build_gif", fallback="No se pudo crear el GIF"))
             return output
         finally:
@@ -120,7 +121,8 @@ class ProcessingMixin:
             output = self._ai_upscale(source, model_id, use_gpu)
             if enhance:
                 self.update_status(t("status_colors", fallback="Mejorando colores..."), 90, "🎨")
-                output = self.processor.enhance_colors(output, **adjust)
+                output = self.processor.enhance_colors(output, **adjust,
+                                                       should_cancel=self._is_cancelled)
             self.current_file = output
             self.update_queue.put((self.show_file_info, ()))
             size_mb = output.stat().st_size / 1048576
@@ -153,6 +155,12 @@ class ProcessingMixin:
                     vibrance=self.vibrance_var.get(), sharpness=self.sharpness_var.get(),
                     temperature=self.temperature_var.get())
 
+    def apply_color_preset(self, key: str) -> None:
+        """Move the five color sliders to one of the COLOR_PRESETS looks."""
+        for name, value in COLOR_PRESETS[key].items():
+            getattr(self, f"{name}_var").set(value)
+        self.log_message(f"Estilo de color: {key} {COLOR_PRESETS[key]}")
+
     def enhance_colors_only(self):
         """Apply the color sliders to the current GIF or image (no AI)."""
         if not self._require_file():
@@ -166,7 +174,8 @@ class ProcessingMixin:
         def process():
             self.update_status(t("status_colors", fallback="Mejorando colores..."), 50, "🎨")
             self.log_message(f"Ajustes de color: {adjust}")
-            result = self.processor.enhance_colors(source, **adjust)
+            result = self.processor.enhance_colors(source, **adjust,
+                                                   should_cancel=self._is_cancelled)
             if result == source:
                 raise RuntimeError(t("err_colors", fallback="No se pudieron aplicar los ajustes de "
                                                             "color. Revisa el log de proceso."))
@@ -301,13 +310,15 @@ class ProcessingMixin:
                 self.processor._archive_before_overwrite(out_dir, keep_names=[output.name],
                                                          protect=source)
                 result = self.processor.convert_video_to_gif(source, output, fps, start_s=start,
-                                                             end_s=end, max_width=max_width)
+                                                             end_s=end, max_width=max_width,
+                                                             should_cancel=self._is_cancelled)
                 if not result:
                     raise RuntimeError(t("err_convert", fallback="No se pudo convertir el video. "
                                                                  "Revisa el log de proceso."))
                 if apply_colors:
                     self.update_status(t("status_colors", fallback="Mejorando colores..."), 80, "🎨")
-                    result = self.processor.enhance_colors(result, **adjust)
+                    result = self.processor.enhance_colors(result, **adjust,
+                                                           should_cancel=self._is_cancelled)
                 self.processor._write_manifest(out_dir, "convertir_video_a_gif",
                                                {"fps": fps, "inicio": start, "fin": end,
                                                 "ancho_max": max_width, "colores": apply_colors},
@@ -332,13 +343,39 @@ class ProcessingMixin:
     # ------------------------------------------------------------------
     # RIFE frame interpolation
     # ------------------------------------------------------------------
-    @staticmethod
-    def _find_rife_model():
-        for name in _RIFE_MODELS:
-            for base in (RIFE_DIR, APP_DIR):
-                if (base / name).is_dir():
-                    return name, base / name
-        return None, None
+    def download_rife(self, then=None) -> None:
+        """Ask to download RIFE (~410 MB, verified) and install it in the background.
+
+        ``then`` runs on the main thread once RIFE is ready (e.g. reopen the dialog).
+        """
+        title = t("enhance_animation", fallback="Mejorar animación")
+        if not messagebox.askyesno(
+                title, t("rife_download_confirm",
+                         fallback="RIFE no está instalado. Se descargará una vez (unos {mb} MB) "
+                                  "desde su página oficial en GitHub.\n\n¿Descargar ahora?",
+                         mb=tools.RIFE_DOWNLOAD_MB),
+                parent=self.root):
+            return
+
+        def process():
+            work = make_temp_dir("wkart_rife_dl_")
+            try:
+                def progress(message, percent):
+                    self.update_status(message, percent, "📥")
+
+                tools.install_rife(work, progress, should_cancel=self._is_cancelled)
+            finally:
+                shutil.rmtree(work, ignore_errors=True)
+            if not tools.rife_installed():
+                raise RuntimeError(t("rife_install_failed",
+                                     fallback="La descarga de RIFE terminó pero faltan archivos. "
+                                              "Inténtalo de nuevo."))
+            self.update_status(t("rife_ready", fallback="RIFE instalado"), 100, "✅")
+            self.log_message("RIFE instalado", "SUCCESS")
+            if then:
+                self.update_queue.put((then, ()))
+
+        self._run_cancellable(process, title)
 
     def enhance_animation(self):
         """Smooth the animation with RIFE frame interpolation (2x or 4x frames)."""
@@ -350,11 +387,9 @@ class ProcessingMixin:
                           t("rife_needs_animation", fallback="RIFE necesita un GIF o un video."))
             return
         rife_exe = find_tool("rife-ncnn-vulkan")
-        model_name, model_dir = self._find_rife_model()
+        model_name, model_dir = tools.find_rife_model()
         if not rife_exe or not model_dir:
-            self._ui_error(t("enhance_animation", fallback="Mejorar animación"),
-                           t("rife_missing", fallback="RIFE no está instalado. Reinicia la aplicación "
-                                                      "para que se descargue automáticamente."))
+            self.download_rife(then=self.enhance_animation)
             return
 
         dlg = ctk.CTkToplevel(self.root)
@@ -403,7 +438,8 @@ class ProcessingMixin:
                 frames_out.mkdir(parents=True)
                 self.update_status(t("status_extracting", fallback="Extrayendo frames..."), 10, "🎞️")
                 frames, fps = self.processor.extract_gif_frames(
-                    source, frames_in, max_width=int(self.config.get("steam_profile.width", 638)))
+                    source, frames_in, max_width=int(self.config.get("steam_profile.width", 638)),
+                    should_cancel=self._is_cancelled)
                 if not frames:
                     raise RuntimeError(t("err_extract_frames", fallback="No se pudieron extraer los frames"))
                 self._raise_if_cancelled()
@@ -414,7 +450,7 @@ class ProcessingMixin:
                 if use_tta:
                     cmd.append("-x")
                 timeout = max(300, len(frames) * multiply * (8 if use_tta else 2))
-                result = run_tool(cmd, timeout=timeout)
+                result = run_tool(cmd, timeout=timeout, should_cancel=self._is_cancelled)
                 out_frames = sorted(frames_out.glob("*.png"))
                 if result.returncode != 0 or not out_frames:
                     raise RuntimeError(f"RIFE: {tail(result.stderr, 300)}")
@@ -424,7 +460,8 @@ class ProcessingMixin:
                 out_dir = self.processor._workspace_dir(source, "interpolado")
                 output = out_dir / f"{source.stem}_rife_{multiply}x{'_tta' if use_tta else ''}.gif"
                 new_fps = fps * multiply
-                if not self.processor.create_optimized_gif(out_frames, output, new_fps):
+                if not self.processor.create_optimized_gif(out_frames, output, new_fps,
+                                                           should_cancel=self._is_cancelled):
                     raise RuntimeError(t("err_build_gif", fallback="No se pudo crear el GIF"))
                 self.current_file = output
                 self.update_queue.put((self.show_file_info, ()))

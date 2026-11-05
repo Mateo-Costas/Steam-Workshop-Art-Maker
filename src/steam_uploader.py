@@ -87,65 +87,50 @@ def _rotate_logs() -> None:
         pass
 
 
-def _load_cookies_from_firefox() -> Optional[requests.cookies.RequestsCookieJar]:
-    """Leer cookies de Firefox directamente (browser_cookie3)."""
+#: Only cookies of these sites (and their subdomains) are read and sent:
+#: "steam" anywhere in the name would also match steamgifts.com, steamdb.info
+#: or a look-alike phishing domain.
+_STEAM_COOKIE_DOMAINS = ("steamcommunity.com", "steampowered.com")
+
+
+def _is_steam_domain(domain: str) -> bool:
+    host = (domain or "").lower().lstrip(".")
+    return any(host == d or host.endswith("." + d) for d in _STEAM_COOKIE_DOMAINS)
+
+
+def _load_cookies_from_browser(browser: str) -> Optional[requests.cookies.RequestsCookieJar]:
+    """Steam cookies of ``browser`` ("firefox", "chrome" or "edge") via browser_cookie3."""
     try:
         import browser_cookie3
     except ImportError:
         return None
     try:
-        # Leer de TODOS los dominios Steam (sessionid puede estar en otro subdominio)
-        cj = browser_cookie3.firefox()
-        relevant = [c for c in cj if "steam" in (c.domain or "").lower()]
-        names = {c.name for c in relevant}
+        # domain_name narrows the database query; _is_steam_domain then keeps
+        # only real Steam hosts (sessionid can live on another Steam subdomain).
+        cj = getattr(browser_cookie3, browser)(domain_name="steam")
+        relevant = [c for c in cj if _is_steam_domain(c.domain)]
         # steamLoginSecure es el único crítico. sessionid se puede bootstrapear.
-        if "steamLoginSecure" not in names:
+        if "steamLoginSecure" not in {c.name for c in relevant}:
             return None
         jar = requests.cookies.RequestsCookieJar()
         for c in relevant:
             jar.set(c.name, c.value, domain=c.domain or ".steamcommunity.com", path=c.path or "/")
         return jar
     except Exception as e:
-        logger.debug(f"No se pudieron leer cookies de Firefox: {e}")
+        logger.debug("No se pudieron leer cookies de %s: %s", browser, e)
         return None
+
+
+def _load_cookies_from_firefox() -> Optional[requests.cookies.RequestsCookieJar]:
+    return _load_cookies_from_browser("firefox")
 
 
 def _load_cookies_from_chrome() -> Optional[requests.cookies.RequestsCookieJar]:
-    try:
-        import browser_cookie3
-    except ImportError:
-        return None
-    try:
-        cj = browser_cookie3.chrome()
-        relevant = [c for c in cj if "steam" in (c.domain or "").lower()]
-        if "steamLoginSecure" not in {c.name for c in relevant}:
-            return None
-        jar = requests.cookies.RequestsCookieJar()
-        for c in relevant:
-            jar.set(c.name, c.value, domain=c.domain or ".steamcommunity.com", path=c.path or "/")
-        return jar
-    except Exception as e:
-        logger.debug(f"No se pudieron leer cookies de Chrome: {e}")
-        return None
+    return _load_cookies_from_browser("chrome")
 
 
 def _load_cookies_from_edge() -> Optional[requests.cookies.RequestsCookieJar]:
-    try:
-        import browser_cookie3
-    except ImportError:
-        return None
-    try:
-        cj = browser_cookie3.edge()
-        relevant = [c for c in cj if "steam" in (c.domain or "").lower()]
-        if "steamLoginSecure" not in {c.name for c in relevant}:
-            return None
-        jar = requests.cookies.RequestsCookieJar()
-        for c in relevant:
-            jar.set(c.name, c.value, domain=c.domain or ".steamcommunity.com", path=c.path or "/")
-        return jar
-    except Exception as e:
-        logger.debug(f"No se pudieron leer cookies de Edge: {e}")
-        return None
+    return _load_cookies_from_browser("edge")
 
 
 def _restrict_cookie_file_permissions() -> None:
@@ -153,10 +138,15 @@ def _restrict_cookie_file_permissions() -> None:
     try:
         if sys.platform == "win32":
             import subprocess
+            from app_paths import windows_tool
+            user = os.environ.get("USERNAME", "")
+            if not user:
+                return
             subprocess.run(
-                ["icacls", str(COOKIES_FILE), "/inheritance:r",
-                 "/grant:r", f"{os.environ.get('USERNAME', '')}:F"],
-                capture_output=True, check=False,
+                [windows_tool("icacls.exe"), str(COOKIES_FILE), "/inheritance:r",
+                 "/grant:r", f"{user}:F"],
+                stdin=subprocess.DEVNULL, capture_output=True, check=False,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
         else:
             os.chmod(COOKIES_FILE, 0o600)
@@ -262,7 +252,7 @@ def _pw_cookies_from_jar(jar: requests.cookies.RequestsCookieJar) -> list:
     out = []
     for c in jar:
         dom = c.domain or ".steamcommunity.com"
-        if "steam" not in dom.lower():
+        if not _is_steam_domain(dom):
             continue
         rest = getattr(c, "_rest", {}) or {}
         # Normalizar sameSite para playwright: "Strict" | "Lax" | "None"
@@ -317,6 +307,10 @@ def upload_fragments_playwright(file_paths: List[Path],
     if jar is None:
         return [(p, False, "Cookies no disponibles") for p in file_paths]
     pw_cookies = _pw_cookies_from_jar(jar)
+    workshop_appid = str(workshop_appid or "").strip()
+    if not workshop_appid.isdigit():
+        workshop_appid = "480"  # Spacewar: the app every Workshop showcase upload uses
+    pubids = [p for p in (pubids or []) if str(p).isdigit()]
 
     file_paths = _sort_by_part(list(file_paths))
     results: List[Tuple[Path, bool, str]] = []
@@ -794,14 +788,16 @@ def upload_fragments_playwright(file_paths: List[Path],
                             _actual_w, _actual_h = _image_size(upload_path)
                             _dim_w = 1000 if spoof_dimensions else _actual_w
                             _dim_h = 1    if spoof_dimensions else _actual_h
+                            # Values travel as arguments, never pasted into the JS source.
                             spoofed = page.evaluate(
-                                f"() => {{"
-                                f" const w = document.querySelector('[name=image_width]');"
-                                f" const h = document.querySelector('[name=image_height]');"
-                                f" if (w) w.value = '{_dim_w}';"
-                                f" if (h) h.value = '{_dim_h}';"
-                                f" return {{w: w ? w.value : null, h: h ? h.value : null}};"
-                                f"}}"
+                                "([dimW, dimH]) => {"
+                                " const w = document.querySelector('[name=image_width]');"
+                                " const h = document.querySelector('[name=image_height]');"
+                                " if (w) w.value = String(dimW);"
+                                " if (h) h.value = String(dimH);"
+                                " return {w: w ? w.value : null, h: h ? h.value : null};"
+                                "}",
+                                [int(_dim_w), int(_dim_h)],
                             )
                             if progress_cb:
                                 progress_cb(i, total, f"   dims → {spoofed}")
@@ -964,10 +960,9 @@ def upload_fragments_playwright(file_paths: List[Path],
 
 def _image_size(path: Path) -> Tuple[int, int]:
     """(width, height) of an image; GIFs are read without decoding (patched ones too)."""
+    from gif_utils import open_image, read_timing
     if path.suffix.lower() == ".gif":
-        from gif_utils import read_timing
         timing = read_timing(path)
         return timing.width, timing.height
-    from PIL import Image
-    with Image.open(path) as image:
+    with open_image(path) as image:
         return image.size

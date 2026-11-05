@@ -2,6 +2,7 @@
 import customtkinter as ctk
 
 from i18n import t
+from processing.enhance import COLOR_PRESETS, COLOR_RANGES
 from ui import theme
 from ui.color_preview import ColorPreviewPanel
 from ui.theme import Colors, Spacing
@@ -74,15 +75,32 @@ class ProcessStep(ctk.CTkFrame):
         self.color_preview.pack(fill="x", padx=Spacing.SM)
 
         section_label(col, t("color_adjustments", fallback="Ajustes de color"))
+        styles = ctk.CTkFrame(col, fg_color="transparent")
+        styles.pack(fill="x", padx=Spacing.SM, pady=(0, Spacing.SM))
+        # One-click looks (COLOR_PRESETS); texts: color_style_<key>, tip_color_style_<key>.
+        for index, key in enumerate(COLOR_PRESETS):
+            chip = ctk.CTkButton(
+                styles, text=t(f"color_style_{key}", fallback=key.title()), height=26, width=10,
+                command=lambda k=key: app.apply_color_preset(k),
+                fg_color="transparent", border_width=1, border_color=Colors.BORDER,
+                hover_color=Colors.HOVER, corner_radius=6, font=theme.font("CAPTION"),
+                text_color=Colors.TEXT_SECONDARY)
+            chip.grid(row=index // 3, column=index % 3, sticky="ew", padx=2, pady=2)
+            attach_tooltip(chip, t(f"tip_color_style_{key}", fallback=key.title()))
+        styles.grid_columnconfigure((0, 1, 2), weight=1, uniform="styles")
+
         rows = (
-            (t("contrast", fallback="Contraste"), app.contrast_var, 0.5, 2.0, "{:.1f}", Colors.ACCENT),
-            (t("saturation", fallback="Saturación"), app.saturation_var, 0.5, 2.0, "{:.1f}", Colors.ACCENT),
-            (t("vibrance", fallback="Vibrance"), app.vibrance_var, 0.0, 1.0, "{:.2f}", "#a855f7"),
-            (t("sharpness", fallback="Nitidez"), app.sharpness_var, 0.0, 1.0, "{:.2f}", "#f59e0b"),
-            (t("temperature", fallback="Temperatura"), app.temperature_var, -1.0, 1.0, "{:+.2f}", "#ef4444"),
+            (t("contrast", fallback="Contraste"), app.contrast_var, "contrast", "{:.1f}", Colors.ACCENT),
+            (t("saturation", fallback="Saturación"), app.saturation_var, "saturation", "{:.1f}",
+             Colors.ACCENT),
+            (t("vibrance", fallback="Vibrance"), app.vibrance_var, "vibrance", "{:.2f}", "#a855f7"),
+            (t("sharpness", fallback="Nitidez"), app.sharpness_var, "sharpness", "{:.2f}", "#f59e0b"),
+            (t("temperature", fallback="Temperatura"), app.temperature_var, "temperature", "{:+.2f}",
+             "#ef4444"),
         )
-        for label, var, lo, hi, fmt, color in rows:
-            SliderRow(col, label, var, lo, hi, fmt=fmt, color=color).pack(
+        for label, var, name, fmt, color in rows:
+            low, high = COLOR_RANGES[name]
+            SliderRow(col, label, var, low, high, fmt=fmt, color=color).pack(
                 fill="x", padx=Spacing.SM, pady=(0, Spacing.SM))
         return col
 

@@ -5,13 +5,14 @@ frozen with PyInstaller, the repository root when running from source), never
 from the current working directory, so the app behaves the same no matter
 where it is launched from.
 """
+import os
 import shutil
 import sys
 import tempfile
 from pathlib import Path
 from typing import Optional
 
-APP_VERSION = "2.1"
+APP_VERSION = "2.2"
 
 FROZEN = getattr(sys, "frozen", False)
 
@@ -47,6 +48,18 @@ def find_tool(name: str) -> Optional[Path]:
             return candidate
     system = shutil.which(name)
     return Path(system) if system else None
+
+
+def windows_tool(*parts: str) -> str:
+    """Absolute path of a Windows system program (e.g. "icacls.exe").
+
+    Running "powershell" or "icacls" by bare name lets Windows pick a file of
+    that name from the app folder or the current directory first; the full
+    System32 path avoids that. Falls back to the bare name if it is missing.
+    """
+    root = os.environ.get("SystemRoot") or r"C:\Windows"
+    candidate = Path(root, "System32", *parts)
+    return str(candidate) if candidate.exists() else parts[-1]
 
 
 def make_temp_dir(prefix: str) -> Path:
