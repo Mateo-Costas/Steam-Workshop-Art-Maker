@@ -7,23 +7,22 @@ see is what the fragments will contain. It is drawn on a neutral background:
 no attempt to mimic the Steam profile page (its layout changes over time).
 
 Optional "profile" mode fetches your Steam name and avatar from the public
-Community XML endpoint (no API key) and shows them above the preview.
+Community XML endpoint (no API key, see steam_profile.py) and shows them
+above the preview.
 """
 
-import io
 import logging
 import os
 import threading
 import tkinter as tk
-import urllib.request
-import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageSequence, ImageTk
 
-from gif_utils import open_gif, read_timing
+from gif_utils import open_gif, open_image, read_timing
 from i18n import t
+from steam_profile import ProfileFetcher
 from video_utils import IMAGE_EXTS, is_video, sample_frames
 
 logger = logging.getLogger("WorkshopArt.fragment_preview")
@@ -40,49 +39,6 @@ _BAR_H = 40
 _AVATAR = 24
 _MAX_FRAMES = 60            # frames kept for the animated preview
 _LOAD_WIDTH = 1000          # source frames are shrunk to this width on load
-
-
-class _ProfileFetcher:
-    """Public Steam profile data via the Community XML endpoint (no API key)."""
-
-    _HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-
-    def fetch(self, profile_url: str, status_cb: Callable[[str], None]) -> dict:
-        """Return {'name': str, 'avatar': PIL image or None, 'online': bool}."""
-        base = profile_url.rstrip("/")
-        xml_url = base if "?xml=1" in base else base + "/?xml=1"
-        status_cb(t("profile_checking", fallback="Consultando Steam..."))
-        try:
-            request = urllib.request.Request(xml_url, headers=self._HEADERS)
-            with urllib.request.urlopen(request, timeout=12) as response:
-                raw = response.read()
-        except OSError as exc:
-            raise RuntimeError(t("steam_unreachable", fallback="No se pudo conectar con Steam: {err}",
-                                 err=exc)) from exc
-        try:
-            root = ET.fromstring(raw)
-        except ET.ParseError as exc:
-            raise RuntimeError(t("steam_bad_answer",
-                                 fallback="Respuesta inesperada de Steam (¿perfil privado?)")) from exc
-        error = root.findtext("error")
-        if error:
-            raise RuntimeError(t("profile_unavailable", fallback="Perfil no disponible: {err}", err=error))
-
-        name = root.findtext("steamID") or "SteamUser"
-        avatar_url = root.findtext("avatarFull") or root.findtext("avatarMedium") or ""
-        online = (root.findtext("onlineState") or "").lower() in ("online", "in-game")
-        avatar = None
-        if avatar_url:
-            try:
-                request = urllib.request.Request(avatar_url, headers=self._HEADERS)
-                with urllib.request.urlopen(request, timeout=10) as response:
-                    avatar = Image.open(io.BytesIO(response.read())).convert("RGB")
-            except OSError:
-                pass  # the avatar is optional
-        return {"name": name, "avatar": avatar, "online": online}
 
 
 def _font(size: int, bold: bool = False):
@@ -135,7 +91,7 @@ class FragmentPreviewSystem:
         """(RGB frames spread over the whole file, delay between them in ms)."""
         path = Path(path)
         if path.suffix.lower() in IMAGE_EXTS:
-            with Image.open(path) as img:
+            with open_image(path) as img:
                 return [img.convert("RGB")], 100
         if is_video(path):
             frames, delay = sample_frames(path, _MAX_FRAMES, (_LOAD_WIDTH, _LOAD_WIDTH))
@@ -200,12 +156,10 @@ class FragmentPreviewSystem:
             url = url_var.get().strip()
             if not url:
                 return
-            if not url.startswith("http"):
-                url = f"https://steamcommunity.com/id/{url}"
 
             def task():
                 try:
-                    data = _ProfileFetcher().fetch(url, lambda m: win.after(0, status.config, {"text": m}))
+                    data = ProfileFetcher().fetch(url, lambda m: win.after(0, status.config, {"text": m}))
                     profile.update(name=data["name"], avatar=data["avatar"])
                     win.after(0, render)
                     win.after(0, status.config, {"text": ""})

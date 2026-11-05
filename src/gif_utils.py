@@ -8,6 +8,11 @@ code that reads a fragment back must go through these helpers:
     open_gif(path)      -> PIL image, trailer restored in memory
     read_timing(path)   -> size and per-frame delays, parsed without decoding
     playback_fps(path)  -> frame rate to resample at without changing speed
+
+Images are opened with only the Pillow decoders the app needs
+(PIL_FORMATS): a file named .png that really holds TIFF, FlashPix, PDF or
+EPS data is refused instead of reaching those rarely used decoders, where
+most image-parsing vulnerabilities are found.
 """
 import io
 import struct
@@ -16,6 +21,9 @@ from pathlib import Path
 from typing import List
 
 from PIL import Image
+
+#: Pillow formats accepted as input (GIF, the IMAGE_EXTS of video_utils).
+PIL_FORMATS = ("GIF", "PNG", "JPEG", "BMP", "WEBP")
 
 GIF_TRAILER = 0x3B
 STEAM_TRAILER = 0x21
@@ -37,14 +45,17 @@ def read_gif_bytes(path: Path) -> bytes:
 
 def open_gif(path: Path) -> Image.Image:
     """Open a GIF (patched or not) with Pillow. The caller closes the image."""
-    return Image.open(io.BytesIO(read_gif_bytes(path)))
+    return Image.open(io.BytesIO(read_gif_bytes(path)), formats=("GIF",))
 
 
 def open_image(path: Path) -> Image.Image:
-    """Open any image; GIFs go through open_gif so patched files work."""
+    """Open an input image (PIL_FORMATS only); GIFs go through open_gif so patched files work.
+
+    Raises OSError (PIL.UnidentifiedImageError) for anything else.
+    """
     if Path(path).suffix.lower() == ".gif":
         return open_gif(path)
-    return Image.open(path)
+    return Image.open(path, formats=PIL_FORMATS)
 
 
 @dataclass
@@ -71,10 +82,11 @@ class GifTiming:
 def read_timing(path: Path) -> GifTiming:
     """Parse the block structure of a GIF without decoding any pixel data.
 
-    Tolerates the Steam-patched trailer. Raises ValueError for non-GIF files.
+    Tolerates the Steam-patched trailer and truncated files (the frames read
+    so far are returned). Raises ValueError for non-GIF files.
     """
     data = Path(path).read_bytes()
-    if data[:6] not in (b"GIF87a", b"GIF89a"):
+    if data[:6] not in (b"GIF87a", b"GIF89a") or len(data) < 13:
         raise ValueError(f"No es un GIF: {path}")
     width, height, flags = struct.unpack("<HHB", data[6:11])
     pos = 13
@@ -98,11 +110,13 @@ def read_timing(path: Path) -> GifTiming:
                 pos += 1
                 if length == 0:
                     break
-                if first and label == 0xF9 and length >= 4:
+                if first and label == 0xF9 and length >= 4 and pos + 3 <= size:
                     pending_delay = struct.unpack("<H", data[pos + 1:pos + 3])[0] * 10
                 first = False
                 pos += length
         elif block == 0x2C:  # image descriptor
+            if pos + 10 > size:
+                break  # truncated descriptor
             local_flags = data[pos + 9]
             pos += 10
             if local_flags & 0x80:

@@ -4,11 +4,14 @@ Every preset goes through the same pipeline:
 
 1. The source (GIF, video or still image) is scaled to the preset canvas
    without distortion (fill + center crop, or keep aspect when the height
-   is free) and cut into its parts with FFmpeg filters.
+   is free) and cut into its parts with FFmpeg filters. The source is
+   decoded once for all its parts (one FFmpeg run with a split graph).
 2. All animated parts are encoded together with ONE shared frame rate and
    quality, so the pieces stay in sync when Steam shows them side by side:
-   gifski with a binary search on quality (best result), or an FFmpeg
-   palette ladder when gifski is not installed.
+   gifski with a search on quality (best result), or an FFmpeg palette
+   ladder when gifski is not installed. Both try the best setting with every
+   piece first (one pass when it fits), then search with the heaviest piece
+   alone and encode the others only at its answer (see _shared_search).
 3. Each part must fit under Steam's 5 MiB limit; the final files get the
    Steam trailer patch and a manifest.json describing the run.
 """
@@ -16,30 +19,60 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
-from gif_utils import format_fps, playback_fps, read_timing
-from processing.common import FRAGMENT_MAX_BYTES, logger, run_tool, tail
+from gif_utils import format_fps, open_image, playback_fps, read_timing
+from processing.common import (FRAGMENT_MAX_BYTES, CancelFn, check_cancel, logger,
+                               run_tool, tail)
 from video_utils import IMAGE_EXTS, is_video, probe_video
 
 #: Frame-rate caps tried after the source rate, from smoothest to smallest.
 _FPS_TIERS = (24, 20, 15, 12, 10, 8, 6, 4, 3)
 #: FFmpeg fallback ladder: (palette colours, fps cap or None = source rate).
+#: Every step lowers the colours, the frame rate or both, so sizes only shrink.
 _FFMPEG_LADDER = ((256, None), (256, 24), (192, 24), (160, 20), (128, 20), (96, 15),
                   (64, 12), (64, 8), (48, 8), (32, 6), (24, 5), (16, 4), (16, 3))
+#: gifski quality range searched for the best value that fits.
+_GIFSKI_QUALITY = (10, 95)
 #: Videos are fragmented at most at this rate (GIF size grows with every frame).
 _VIDEO_FPS_CAP = 30.0
 
 ProgressFn = Optional[Callable[[str], None]]
-CancelFn = Optional[Callable[[], bool]]
 
 
 @dataclass
 class _EncodeJob:
-    """One output GIF of a shared encode: source + filters -> output."""
+    """One output GIF of a shared encode: source + filters -> output.
+
+    ``canvas`` is applied once per source and shared by its jobs (the scale to
+    the preset canvas); ``filters`` is the job's own part (its crop).
+    ``pixels`` (output area) lets the encoders check the biggest piece first.
+    """
     source: Path
-    filters: str   # FFmpeg filters applied after the fps filter ("" for none)
+    filters: str   # FFmpeg filters of this output, after fps and canvas ("" for none)
     output: Path
+    canvas: str = ""
+    pixels: int = 0
+
+
+class _EncoderFailed(Exception):
+    """FFmpeg itself failed (not a size problem): stop the search."""
+
+
+def shared_graph(fps_arg: str, canvas: str, branches: List[str]) -> Tuple[str, List[str]]:
+    """filter_complex that decodes a source once and feeds one output per branch.
+
+    Returns (graph, output labels): ``[0:v]fps,canvas,split=N`` then each
+    branch's own filters, so N pieces cost one decode and one scale.
+    """
+    head = ",".join(f for f in (f"fps={fps_arg}", canvas) if f)
+    if len(branches) == 1:
+        return f"[0:v]{head},{branches[0] or 'null'}[o0]", ["[o0]"]
+    count = len(branches)
+    labels = "".join(f"[s{i}]" for i in range(count))
+    graph = [f"[0:v]{head},split={count}{labels}"]
+    graph += [f"[s{i}]{branch or 'null'}[o{i}]" for i, branch in enumerate(branches)]
+    return ";".join(graph), [f"[o{i}]" for i in range(count)]
 
 
 class SplitMixin:
@@ -170,11 +203,17 @@ class SplitMixin:
             self._last_split_error = f"No se pudo leer {source.name}: {e}"
             return False
         canvas_h, canvas = self._canvas_filter(cfg, width, height)
-        jobs = [_EncodeJob(source, f"{canvas},crop={w}:{canvas_h}:{left}:0",
-                           out_dir / f"{source.stem}_{name}.gif")
+        jobs = [_EncodeJob(source, f"crop={w}:{canvas_h}:{left}:0",
+                           out_dir / f"{source.stem}_{name}.gif",
+                           canvas=canvas, pixels=w * canvas_h)
                 for name, w, left in cfg["parts"]]
 
-        result = self._encode_shared(jobs, fps, FRAGMENT_MAX_BYTES, progress_cb, should_cancel)
+        try:
+            result = self._encode_shared(jobs, fps, FRAGMENT_MAX_BYTES, progress_cb, should_cancel)
+        except InterruptedError:
+            for job in jobs:  # never leave half a set behind
+                job.output.unlink(missing_ok=True)
+            raise
         if result is None:
             if not self._last_split_error:
                 self._last_split_error = ("No se pudo generar ningun fragmento por debajo de 5 MB. "
@@ -235,94 +274,117 @@ class SplitMixin:
 
     def _encode_shared_gifski(self, jobs, tiers, max_bytes, progress_cb, should_cancel):
         work = Path(tempfile.mkdtemp(prefix="wkart_frag_"))
+        qualities = list(range(_GIFSKI_QUALITY[1], _GIFSKI_QUALITY[0] - 1, -1))  # best first
         try:
             for fps in tiers:
                 fps_arg = format_fps(fps)
-                frame_dirs = []
-                for index, job in enumerate(jobs):
-                    _check_cancel(should_cancel)
-                    folder = work / f"fps{fps_arg}_{index}"
-                    folder.mkdir()
-                    filters = ",".join(f for f in (f"fps={fps_arg}", job.filters) if f)
-                    result = run_tool([self.ffmpeg_path, "-hide_banner", "-y", "-i", job.source,
-                                       "-vf", filters, folder / "frame%06d.png"], timeout=900)
-                    if result.returncode != 0 or not any(folder.glob("frame*.png")):
-                        self._last_split_error = f"FFmpeg no pudo extraer los frames: {tail(result.stderr)}"
-                        return None
-                    frame_dirs.append(folder)
+                frame_dirs = self._extract_job_frames(jobs, fps_arg, work, should_cancel)
+                if frame_dirs is None:
+                    return None
+                # The piece with the heaviest frames gives the heaviest GIF: it goes first.
+                weight = [sum(f.stat().st_size for f in folder.glob("frame*.png"))
+                          for folder in frame_dirs]
+                order = sorted(range(len(jobs)), key=lambda i: (-weight[i], -jobs[i].pixels))
+                reported = set()
 
-                best_quality = None
-                low, high = 10, 95
-                while low <= high:
-                    quality = (low + high) // 2
-                    _report(progress_cb, f"gifski: {fps_arg} fps, calidad {quality}")
-                    if self._gifski_all_fit(jobs, frame_dirs, fps_arg, quality, max_bytes,
-                                            work, should_cancel):
-                        best_quality = quality
-                        for job in jobs:
-                            shutil.copyfile(job.output, work / f"best_{job.output.name}")
-                        low = quality + 1
-                    else:
-                        high = quality - 1
-                for folder in frame_dirs:
-                    shutil.rmtree(folder, ignore_errors=True)
-                if best_quality is not None:
-                    for job in jobs:
-                        shutil.copyfile(work / f"best_{job.output.name}", job.output)
-                    return {"engine": "gifski", "fps": fps_arg, "quality": best_quality}
+                def encode(index: int, candidate: int) -> int:
+                    quality, job = qualities[candidate], jobs[index]
+                    if quality not in reported:
+                        reported.add(quality)
+                        _report(progress_cb, f"gifski: {fps_arg} fps, calidad {quality}")
+                    check_cancel(should_cancel)
+                    result = run_tool([self.gifski_path, "--fps", fps_arg, "--quality", str(quality),
+                                       "--repeat", "0", "-o", job.output,
+                                       frame_dirs[index] / "frame*.png"],
+                                      timeout=900, should_cancel=should_cancel)
+                    if result.returncode != 0 or not job.output.exists():
+                        logger.warning("gifski fallo (%s): %s", job.output.name, tail(result.stderr))
+                        raise _EncoderFailed
+                    return job.output.stat().st_size
+
+                try:
+                    best = _shared_search(len(qualities), order, encode, max_bytes,
+                                          *_keepers(jobs, work))
+                except _EncoderFailed:
+                    return None
+                finally:
+                    for folder in frame_dirs:
+                        shutil.rmtree(folder, ignore_errors=True)
+                if best is not None:
+                    return {"engine": "gifski", "fps": fps_arg, "quality": qualities[best]}
                 logger.info("gifski: a %s fps no cabe en %.2f MB, bajando fps",
                             fps_arg, max_bytes / 1048576)
             return None
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
-    def _gifski_all_fit(self, jobs, frame_dirs, fps_arg, quality, max_bytes, work,
-                        should_cancel) -> bool:
-        for job, folder in zip(jobs, frame_dirs):
-            _check_cancel(should_cancel)
-            result = run_tool([self.gifski_path, "--fps", fps_arg, "--quality", str(quality),
-                               "--repeat", "0", "-o", job.output, folder / "frame*.png"],
-                              timeout=900)
-            if result.returncode != 0 or not job.output.exists():
-                logger.warning("gifski fallo (%s): %s", job.output.name, tail(result.stderr))
-                return False
-            if job.output.stat().st_size > max_bytes:
-                return False
-        return True
+    def _extract_job_frames(self, jobs: List[_EncodeJob], fps_arg: str, work: Path,
+                            should_cancel: CancelFn) -> Optional[List[Path]]:
+        """PNG frames of every job, one FFmpeg run (one decode) per source."""
+        folders: List[Optional[Path]] = [None] * len(jobs)
+        groups: Dict[Tuple[Path, str], List[int]] = {}
+        for index, job in enumerate(jobs):
+            groups.setdefault((job.source, job.canvas), []).append(index)
+        for (source, canvas), indexes in groups.items():
+            check_cancel(should_cancel)
+            graph, labels = shared_graph(fps_arg, canvas, [jobs[i].filters for i in indexes])
+            cmd = [self.ffmpeg_path, "-hide_banner", "-y", "-i", source,
+                   "-filter_complex", graph]
+            for label, index in zip(labels, indexes):
+                folder = work / f"fps{fps_arg}_{index}"
+                folder.mkdir()
+                folders[index] = folder
+                cmd += ["-map", label, folder / "frame%06d.png"]
+            result = run_tool(cmd, timeout=600 + 300 * len(indexes), should_cancel=should_cancel)
+            if result.returncode != 0 or not all(any(folders[i].glob("frame*.png"))
+                                                 for i in indexes):
+                self._last_split_error = f"FFmpeg no pudo extraer los frames: {tail(result.stderr)}"
+                return None
+        return folders
 
     def _encode_shared_ffmpeg(self, jobs, source_fps, max_bytes, progress_cb, should_cancel):
         ladder = [(colors, cap) for colors, cap in _FFMPEG_LADDER
                   if cap is None or cap < source_fps - 0.5]
-        for colors, cap in ladder:
-            fps_arg = format_fps(cap or source_fps)
-            _report(progress_cb, f"FFmpeg: {fps_arg} fps, {colors} colores")
-            fits = True
-            for job in jobs:
-                _check_cancel(should_cancel)
-                graph = ",".join(f for f in (f"[0:v]fps={fps_arg}", job.filters) if f)
-                graph += (f",split[a][b];[a]palettegen=max_colors={colors}:stats_mode=full"
-                          f":reserve_transparent=1[p];"
-                          f"[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle")
-                result = run_tool([self.ffmpeg_path, "-hide_banner", "-y", "-i", job.source,
-                                   "-filter_complex", graph, "-loop", "0", job.output],
-                                  timeout=900)
-                if result.returncode != 0 or not job.output.exists():
-                    self._last_split_error = f"FFmpeg fallo: {tail(result.stderr)}"
-                    return None
-                if job.output.stat().st_size > max_bytes:
-                    fits = False
-                    break
-            if fits:
-                return {"engine": "ffmpeg", "fps": fps_arg, "colors": colors}
-        return None
+        work = Path(tempfile.mkdtemp(prefix="wkart_ffl_"))
+        order = sorted(range(len(jobs)), key=lambda i: -jobs[i].pixels)
+        reported = set()
+
+        def encode(index: int, step: int) -> int:
+            colors, cap = ladder[step]
+            fps_arg, job = format_fps(cap or source_fps), jobs[index]
+            if step not in reported:
+                reported.add(step)
+                _report(progress_cb, f"FFmpeg: {fps_arg} fps, {colors} colores")
+            check_cancel(should_cancel)
+            graph = ",".join(f for f in (f"[0:v]fps={fps_arg}", job.canvas, job.filters) if f)
+            graph += (f",split[a][b];[a]palettegen=max_colors={colors}:stats_mode=full"
+                      f":reserve_transparent=1[p];"
+                      f"[b][p]paletteuse=dither=sierra2_4a:diff_mode=rectangle")
+            result = run_tool([self.ffmpeg_path, "-hide_banner", "-y", "-i", job.source,
+                               "-filter_complex", graph, "-loop", "0", job.output],
+                              timeout=900, should_cancel=should_cancel)
+            if result.returncode != 0 or not job.output.exists():
+                self._last_split_error = f"FFmpeg fallo: {tail(result.stderr)}"
+                raise _EncoderFailed
+            return job.output.stat().st_size
+
+        try:
+            best = _shared_search(len(ladder), order, encode, max_bytes, *_keepers(jobs, work))
+        except _EncoderFailed:
+            return None
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        if best is None:
+            return None
+        colors, cap = ladder[best]
+        return {"engine": "ffmpeg", "fps": format_fps(cap or source_fps), "colors": colors}
 
     # ------------------------------------------------------------------
     # Still images -> JPEG parts
     # ------------------------------------------------------------------
     def _split_static(self, image: Path, preset: str, cfg: dict, out_dir: Path) -> bool:
         try:
-            from PIL import Image
-            with Image.open(image) as img:
+            with open_image(image) as img:
                 width, height = img.size
         except OSError as e:
             self._last_split_error = f"No se pudo abrir la imagen: {e}"
@@ -345,9 +407,79 @@ class SplitMixin:
         return True
 
 
-def _check_cancel(should_cancel: CancelFn) -> None:
-    if should_cancel and should_cancel():
-        raise InterruptedError("Cancelado por el usuario")
+def _shared_search(count: int, order: List[int], encode: Callable[[int, int], int],
+                   max_bytes: int, keep: Callable[[int], None],
+                   restore: Callable[[int], None]) -> Optional[int]:
+    """First (best) of ``count`` candidates at which every job fits ``max_bytes``.
+
+    Candidates go from best to worst quality, so sizes shrink as the index
+    grows; ``encode(job, candidate)`` writes the job's output and returns its
+    size. ``order`` lists the jobs heaviest first.
+
+    The best candidate is tried with every job: a single pass when all fit.
+    Otherwise the job that did not fit (the "pilot") is searched on its own -
+    one encode per step instead of one per job, its smallest candidate first
+    so a set that cannot fit is rejected at once - and the other jobs are only
+    encoded at the pilot's answer. One of them not fitting there becomes the
+    next pilot, for the worse candidates only. ``keep(job)`` / ``restore(job)``
+    save and bring back a job's output; every job's output is left at the
+    returned candidate.
+    """
+    if count <= 0 or not order:
+        return None
+    at: Dict[int, int] = {}    # job -> candidate its output file holds now
+    kept: Dict[int, int] = {}  # job -> candidate of its saved copy (always a fit)
+
+    def fits(job: int, candidate: int) -> bool:
+        size = encode(job, candidate)
+        at[job] = candidate
+        return size <= max_bytes
+
+    def first_fit(job: int, low: int) -> Optional[int]:
+        high = count - 1
+        if low > high or not fits(job, high):
+            return None
+        keep(job)
+        kept[job] = best = high
+        high -= 1
+        while low <= high:
+            mid = (low + high) // 2
+            if fits(job, mid):
+                keep(job)
+                kept[job] = best = mid
+                high = mid - 1
+            else:
+                low = mid + 1
+        return best
+
+    pilot = next((job for job in order if not fits(job, 0)), None)
+    best = 0
+    while pilot is not None:
+        best = first_fit(pilot, best + 1)
+        if best is None:
+            return None
+        pilot = None
+        for job in order:
+            if at.get(job) == best:
+                continue
+            if kept.get(job) == best:
+                restore(job)
+                at[job] = best
+            elif not fits(job, best):
+                pilot = job
+                break
+    return best
+
+
+def _keepers(jobs: List[_EncodeJob], work: Path):
+    """(keep, restore) callbacks of _shared_search that copy a job's output aside."""
+    def keep(index: int) -> None:
+        shutil.copyfile(jobs[index].output, work / f"keep_{index}.gif")
+
+    def restore(index: int) -> None:
+        shutil.copyfile(work / f"keep_{index}.gif", jobs[index].output)
+
+    return keep, restore
 
 
 def _report(progress_cb: ProgressFn, message: str) -> None:

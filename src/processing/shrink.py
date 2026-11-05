@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from gif_utils import playback_fps
+from gif_utils import playback_fps, read_timing
 from processing.common import logger
 from processing.splitting import _EncodeJob
 
@@ -42,7 +42,7 @@ class ShrinkMixin:
         fps = max(playback_fps(p) for p in existing)
         work = Path(tempfile.mkdtemp(prefix="wkart_opt_"))
         try:
-            jobs = [_EncodeJob(p, "", work / f"{i:02d}_{p.stem}_opt.gif")
+            jobs = [_EncodeJob(p, "", work / f"{i:02d}_{p.stem}_opt.gif", pixels=_pixels(p))
                     for i, p in enumerate(existing)]
             _log(progress_cb, f"Optimizando {len(jobs)} archivo(s) a <= {max_mb:.2f} MB "
                               f"(estrategia compartida)")
@@ -74,6 +74,15 @@ class ShrinkMixin:
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
+
+
+def _pixels(path: Path) -> int:
+    """Canvas area of a GIF (0 if unreadable): bigger files are encoded first."""
+    try:
+        timing = read_timing(path)
+        return timing.width * timing.height
+    except (OSError, ValueError):
+        return 0
 
 
 def _log(progress_cb, message: str) -> None:

@@ -1,5 +1,6 @@
-# Development tools: tests, lint and the .exe build
+# Development tools: tests, lint, dependency audit and the .exe build
 -r requirements.txt
-pytest>=8
+pytest>=9.0.3          # 9.0.3 fixes CVE-2025-71176 (insecure tmpdir handling)
 pyflakes>=3
-pyinstaller>=6
+pip-audit>=2.7
+pyinstaller>=6.10

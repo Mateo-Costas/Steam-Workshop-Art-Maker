@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from app_paths import find_tool, resolve
+from app_paths import find_tool, resolve, windows_tool
 from config import Config
 from models import ModelManager
 from processing.common import _NO_WINDOW_FLAGS, logger
@@ -198,9 +198,11 @@ class SteamProcessorBase:
         if sys.platform != "win32":
             return []
         try:
+            powershell = windows_tool("WindowsPowerShell", "v1.0", "powershell.exe")
             result = subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-Command", _GPU_QUERY],
-                capture_output=True, text=True, timeout=20, **_NO_WINDOW_FLAGS)
+                [powershell, "-NoProfile", "-NonInteractive", "-Command", _GPU_QUERY],
+                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20,
+                **_NO_WINDOW_FLAGS)
             data = json.loads(result.stdout or "[]")
         except (OSError, subprocess.SubprocessError, ValueError) as e:
             logger.warning("No se pudo consultar la GPU: %s", e)

@@ -3,7 +3,6 @@ import re
 import subprocess
 import sys
 import threading
-import urllib.request
 import zipfile
 from typing import Optional
 
@@ -77,7 +76,7 @@ class UploadMixin:
     # ------------------------------------------------------------------
     def validate_steam_profile(self):
         """Check that a Steam profile is public and has level 10+ (needed for showcases)."""
-        from fragment_preview import _ProfileFetcher
+        from steam_profile import ProfileFetcher, profile_url
 
         dlg = ctk.CTkToplevel(self.root)
         dlg.title(t("validate_profile", fallback="Validar perfil"))
@@ -100,28 +99,19 @@ class UploadMixin:
             raw = entry_var.get().strip()
             if not raw:
                 return
+            try:
+                url = profile_url(raw)  # only steamcommunity.com profiles are fetched
+            except ValueError as e:
+                show(f"❌ {e}", Colors.DANGER)
+                return
             self.config.set("ui.steam_vanity", raw)
-            if raw.startswith("http"):
-                url = raw
-            elif raw.isdigit() and len(raw) == 17:
-                url = f"https://steamcommunity.com/profiles/{raw}"
-            else:
-                url = f"https://steamcommunity.com/id/{raw}"
 
             def worker():
                 try:
                     show(t("profile_checking", fallback="Consultando Steam..."))
-                    data = _ProfileFetcher().fetch(url, lambda _m: None)
+                    data = ProfileFetcher().fetch(url)
                     lines = [t("profile_found", fallback="✅ Perfil encontrado: {name}", name=data["name"])]
-                    level = None
-                    try:
-                        request = urllib.request.Request(url, headers=_ProfileFetcher._HEADERS)
-                        with urllib.request.urlopen(request, timeout=12) as response:
-                            html = response.read().decode("utf-8", errors="replace")
-                        match = re.search(r'friendPlayerLevelNum">\s*(\d+)', html)
-                        level = int(match.group(1)) if match else None
-                    except OSError:
-                        pass
+                    level = ProfileFetcher.fetch_level(url)
                     if level is None:
                         lines.append(t("profile_level_unknown",
                                        fallback="ℹ️ No se pudo leer el nivel (los showcases requieren nivel 10)"))

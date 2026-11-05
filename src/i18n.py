@@ -16,6 +16,15 @@ _STRINGS = {
     # ---- Main window -------------------------------------------------------
     "help": ("Ayuda", "Help", "Ajuda"),
     "tip_help": ("Guía completa (F1)", "Full guide (F1)", "Guia completo (F1)"),
+    "update_available": ("⬆ Versión {version}", "⬆ Version {version}", "⬆ Versão {version}"),
+    "tip_update_available": ("Hay una versión nueva: abre su página de descarga",
+                             "A new version is out: open its download page",
+                             "Há uma versão nova: abre a página de download"),
+    "update_log": ("Hay una versión nueva de WorkshopArt: {version} ({url})",
+                   "A new WorkshopArt version is available: {version} ({url})",
+                   "Há uma nova versão do WorkshopArt: {version} ({url})"),
+    "check_updates": ("Avisar cuando haya una versión nueva", "Tell me when a new version is out",
+                      "Avisar quando houver uma versão nova"),
     "font_scale": ("Tamaño de texto", "Text size", "Tamanho do texto"),
     "tip_font_scale": ("Tamaño del texto (requiere reiniciar)", "Text size (restart required)",
                        "Tamanho do texto (requer reiniciar)"),
@@ -130,6 +139,22 @@ _STRINGS = {
     "preview_no_file": ("Carga un GIF o imagen para ver el preview", "Load a GIF or image to see the preview",
                         "Carregue um GIF ou imagem para ver o preview"),
     "color_adjustments": ("Ajustes de color", "Color adjustments", "Ajustes de cor"),
+    "color_style_original": ("Original", "Original", "Original"),
+    "color_style_soft": ("Suave", "Soft", "Suave"),
+    "color_style_vivid": ("Vivo", "Vivid", "Vivo"),
+    "color_style_intense": ("Intenso", "Intense", "Intenso"),
+    "color_style_warm": ("Cálido", "Warm", "Quente"),
+    "color_style_cool": ("Frío", "Cool", "Frio"),
+    "tip_color_style_original": ("Sin cambios de color", "No color changes", "Sem mudanças de cor"),
+    "tip_color_style_soft": ("Retoque ligero de contraste y color", "A light touch of contrast and color",
+                             "Um leve retoque de contraste e cor"),
+    "tip_color_style_vivid": ("Los valores por defecto de la app", "The app's default values",
+                              "Os valores padrão do aplicativo"),
+    "tip_color_style_intense": ("Colores saturados y más nitidez", "Saturated colors and extra sharpness",
+                                "Cores saturadas e mais nitidez"),
+    "tip_color_style_warm": ("Tonos cálidos (rojos y amarillos)", "Warm tones (reds and yellows)",
+                             "Tons quentes (vermelhos e amarelos)"),
+    "tip_color_style_cool": ("Tonos fríos (azules)", "Cool tones (blues)", "Tons frios (azuis)"),
     "contrast": ("Contraste", "Contrast", "Contraste"),
     "saturation": ("Saturación", "Saturation", "Saturação"),
     "vibrance": ("Vibrance", "Vibrance", "Vibrância"),
@@ -229,9 +254,17 @@ _STRINGS = {
                     "Não foi possível converter o vídeo. Veja o log do processo."),
     "rife_needs_animation": ("RIFE necesita un GIF o un video.", "RIFE needs a GIF or a video.",
                              "O RIFE precisa de um GIF ou de um vídeo."),
-    "rife_missing": ("RIFE no está instalado. Reinicia la aplicación para que se descargue automáticamente.",
-                     "RIFE is not installed. Restart the app to download it automatically.",
-                     "O RIFE não está instalado. Reinicie o aplicativo para baixá-lo automaticamente."),
+    "rife_download_confirm": (
+        "RIFE no está instalado. Se descargará una vez (unos {mb} MB) desde su página oficial "
+        "en GitHub.\n\n¿Descargar ahora?",
+        "RIFE is not installed. It will be downloaded once (about {mb} MB) from its official "
+        "GitHub page.\n\nDownload it now?",
+        "O RIFE não está instalado. Ele será baixado uma vez (cerca de {mb} MB) da sua página "
+        "oficial no GitHub.\n\nBaixar agora?"),
+    "rife_install_failed": ("La descarga de RIFE terminó pero faltan archivos. Inténtalo de nuevo.",
+                            "RIFE was downloaded but some files are missing. Please try again.",
+                            "O RIFE foi baixado, mas faltam arquivos. Tente de novo."),
+    "rife_ready": ("RIFE instalado", "RIFE installed", "RIFE instalado"),
     "rife_multiplier": ("Multiplicar frames:", "Multiply frames:", "Multiplicar frames:"),
     "rife_tta": ("Calidad máxima (TTA), unas 4 veces más lento", "Maximum quality (TTA), about 4 times slower",
                  "Qualidade máxima (TTA), cerca de 4 vezes mais lento"),
@@ -348,6 +381,12 @@ _STRINGS = {
                          "Unexpected answer from Steam (private profile?)",
                          "Resposta inesperada da Steam (perfil privado?)"),
     "profile_unavailable": ("Perfil no disponible: {err}", "Profile unavailable: {err}", "Perfil indisponível: {err}"),
+    "profile_bad_url": ("Escribe tu nombre personalizado, tu SteamID64 o el enlace a tu perfil de "
+                        "steamcommunity.com",
+                        "Type your custom URL name, your SteamID64 or the link to your "
+                        "steamcommunity.com profile",
+                        "Digite seu nome personalizado, seu SteamID64 ou o link do seu perfil no "
+                        "steamcommunity.com"),
 
     # ---- Step 4: upload --------------------------------------------------------
     "refresh_fragments": ("Actualizar lista", "Refresh list", "Atualizar lista"),
@@ -442,9 +481,12 @@ _STRINGS = {
         "2 · PROCESAR (opcional)\n"
         "• Procesar con IA: mejora la resolución con Real-ESRGAN o Real-CUGAN (mejor con GPU).\n"
         "• Solo colores: aplica contraste, saturación, vibrance, nitidez y temperatura; "
-        "el preview muestra el resultado en vivo.\n"
+        "el preview muestra el resultado en vivo. Los estilos (Original, Suave, Vivo...) mueven "
+        "todos los controles de una vez y los valores se recuerdan al cerrar.\n"
         "• Video → GIF: convierte un video eligiendo FPS, recorte y tamaño.\n"
-        "• Mejorar animación: interpola frames con RIFE para una animación más fluida.\n\n"
+        "• Mejorar animación: interpola frames con RIFE para una animación más fluida "
+        "(RIFE se descarga la primera vez que lo usas).\n"
+        "• Cancelar (barra de estado) detiene al momento cualquier proceso en curso.\n\n"
         "3 · FRAGMENTAR\n"
         "• Elige el formato del showcase y pulsa Fragmentar. Todas las piezas comparten FPS y "
         "calidad para que se vean sincronizadas.\n"
@@ -479,9 +521,12 @@ _STRINGS = {
         "2 · PROCESS (optional)\n"
         "• Process with AI: improves the resolution with Real-ESRGAN or Real-CUGAN (best with a GPU).\n"
         "• Colors only: applies contrast, saturation, vibrance, sharpness and temperature; "
-        "the preview shows the result live.\n"
+        "the preview shows the result live. The styles (Original, Soft, Vivid...) set every "
+        "slider at once, and the values are remembered when you close the app.\n"
         "• Video → GIF: converts a video choosing FPS, trim and size.\n"
-        "• Smooth animation: interpolates frames with RIFE for a smoother animation.\n\n"
+        "• Smooth animation: interpolates frames with RIFE for a smoother animation "
+        "(RIFE is downloaded the first time you use it).\n"
+        "• Cancel (status bar) stops any running job right away.\n\n"
         "3 · FRAGMENT\n"
         "• Choose the showcase format and click Fragment. All pieces share FPS and quality so "
         "they play in sync.\n"
@@ -517,9 +562,12 @@ _STRINGS = {
         "2 · PROCESSAR (opcional)\n"
         "• Processar com IA: melhora a resolução com Real-ESRGAN ou Real-CUGAN (melhor com GPU).\n"
         "• Só cores: aplica contraste, saturação, vibrância, nitidez e temperatura; o preview "
-        "mostra o resultado ao vivo.\n"
+        "mostra o resultado ao vivo. Os estilos (Original, Suave, Vivo...) ajustam todos os "
+        "controles de uma vez, e os valores são lembrados ao fechar.\n"
         "• Vídeo → GIF: converte um vídeo escolhendo FPS, corte e tamanho.\n"
-        "• Suavizar animação: interpola frames com RIFE para uma animação mais fluida.\n\n"
+        "• Suavizar animação: interpola frames com RIFE para uma animação mais fluida "
+        "(o RIFE é baixado na primeira vez que você o usa).\n"
+        "• Cancelar (barra de status) interrompe na hora qualquer processo em andamento.\n\n"
         "3 · FRAGMENTAR\n"
         "• Escolha o formato do showcase e clique em Fragmentar. Todas as peças compartilham FPS "
         "e qualidade para ficarem sincronizadas.\n"

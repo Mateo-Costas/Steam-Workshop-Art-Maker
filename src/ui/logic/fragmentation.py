@@ -199,7 +199,8 @@ class FragmentationMixin:
                 work = self._ai_upscale(work, model_id, use_gpu, progress_range=(5, 60))
             if enhance:
                 self.update_status(t("status_colors", fallback="Mejorando colores..."), 65, "🎨")
-                work = self.processor.enhance_colors(work, **adjust)
+                work = self.processor.enhance_colors(work, **adjust,
+                                                     should_cancel=self._is_cancelled)
             self._raise_if_cancelled()
             self.update_status(t("status_fragmenting", fallback="Fragmentando..."), 70, "✂️")
             ok = self.processor.fragment_media(

@@ -12,18 +12,22 @@ layout and wiring only. Worker threads never touch widgets directly - they
 enqueue callables on self.update_queue (drained by update_ui_loop).
 """
 import queue
+import sys
 import threading
+import webbrowser
 from pathlib import Path
 from tkinter import messagebox
 
 import customtkinter as ctk
 import tkinter as tk
 
+import updates
 from app_paths import APP_VERSION
 from config import Config
 from fragment_preview import FragmentPreviewSystem
 from i18n import get_language, set_language, t
 from processing import SteamProcessor
+from processing.enhance import clamp_colors
 from quality_report import QualityReportSystem
 from ui import theme
 from ui.logic import GUIMethodsMixin
@@ -32,11 +36,14 @@ from ui.steps import FileStep, FragmentStep, ProcessStep, UploadStep
 from ui.theme import PALETTE, Colors, Spacing
 from ui.widgets import StatusBar, Stepper, attach_tooltip, darken
 
-# windnd enables native Windows drag-and-drop; gracefully absent elsewhere.
-try:
-    import windnd
-except ImportError:
-    windnd = None
+# windnd enables native Windows drag-and-drop; it only works on Windows (it
+# calls ctypes.windll), so it is not even imported elsewhere.
+windnd = None
+if sys.platform == "win32":
+    try:
+        import windnd
+    except ImportError:
+        pass
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -68,16 +75,23 @@ class WorkshopArtGUI(GUIMethodsMixin):
         self.status_var = tk.StringVar(value=t("status_ready", fallback="Listo"))
         self.model_var = tk.StringVar()
         self.gpu_var = tk.BooleanVar(value=True)
-        self.contrast_var = tk.DoubleVar(value=1.5)
-        self.saturation_var = tk.DoubleVar(value=1.3)
-        self.vibrance_var = tk.DoubleVar(value=0.0)
-        self.sharpness_var = tk.DoubleVar(value=0.0)
-        self.temperature_var = tk.DoubleVar(value=0.0)
+        # Color sliders start where the user left them (config ui.colors).
+        colors = clamp_colors(self.config.get("ui.colors", {}) or {})
+        self.contrast_var = tk.DoubleVar(value=colors["contrast"])
+        self.saturation_var = tk.DoubleVar(value=colors["saturation"])
+        self.vibrance_var = tk.DoubleVar(value=colors["vibrance"])
+        self.sharpness_var = tk.DoubleVar(value=colors["sharpness"])
+        self.temperature_var = tk.DoubleVar(value=colors["temperature"])
         self.enhance_colors_var = tk.BooleanVar(value=True)
+        self._colors_save_id = None
+        for var in (self.contrast_var, self.saturation_var, self.vibrance_var,
+                    self.sharpness_var, self.temperature_var):
+            var.trace_add("write", self._schedule_colors_save)
 
         self._cancel_event = threading.Event()
         self.update_queue = queue.Queue()
         self._compact = False
+        self._update_release = None  # newer release found by updates.check_for_update
 
         self.setup_logging()
         self._build_ui()
@@ -86,6 +100,7 @@ class WorkshopArtGUI(GUIMethodsMixin):
 
         self.root.after(200, self.check_dependencies)
         self.root.after(500, self._refresh_step_state)
+        self.root.after(4000, self._check_for_updates)
         self.root.bind("<Configure>", self._on_resize)
         self.update_ui_loop()
 
@@ -152,6 +167,16 @@ class WorkshopArtGUI(GUIMethodsMixin):
                                  height=30, corner_radius=6, font=theme.font("CAPTION"))
         help_btn.pack(side="right", padx=(Spacing.SM, Spacing.LG), pady=Spacing.SM)
         attach_tooltip(help_btn, t("tip_help", fallback="Guía completa (F1)"))
+
+        # Shown only when a newer release exists (see _check_for_updates).
+        self._update_btn = ctk.CTkButton(
+            header, text="", command=self._open_update_page, width=120, height=30,
+            fg_color=Colors.SUCCESS, hover_color=darken(Colors.SUCCESS), corner_radius=6,
+            font=theme.font("CAPTION"), text_color="#0d1117")
+        attach_tooltip(self._update_btn, t("tip_update_available",
+                                           fallback="Abre la página de la nueva versión"))
+        if self._update_release:  # rebuilt after a language change
+            self._show_update(self._update_release, announce=False)
 
         scale = ctk.CTkOptionMenu(
             header, values=[f"{p}%" for p in theme.SCALE_OPTIONS],
@@ -259,6 +284,52 @@ class WorkshopArtGUI(GUIMethodsMixin):
                 parent=self.root)
 
     # ------------------------------------------------------------------
+    # Saved color sliders and the new-version notice
+    # ------------------------------------------------------------------
+    def _schedule_colors_save(self, *_args) -> None:
+        """Persist the color sliders shortly after the user stops moving them."""
+        if self._colors_save_id is not None:
+            try:
+                self.root.after_cancel(self._colors_save_id)
+            except tk.TclError:
+                pass
+        self._colors_save_id = self.root.after(800, self._save_colors)
+
+    def _save_colors(self) -> None:
+        self._colors_save_id = None
+        try:
+            values = {name: round(value, 3) for name, value in self._color_values().items()}
+        except tk.TclError:  # a slider entry holds text that is not a number
+            return
+        self.config.set("ui.colors", clamp_colors(values))
+
+    def _check_for_updates(self, force: bool = False) -> None:
+        """Look for a newer release in the background (at most once a day)."""
+        def check():
+            release = updates.check_for_update(self.config, APP_VERSION, force=force)
+            if release:
+                self.update_queue.put((self._show_update, (release,)))
+
+        threading.Thread(target=check, daemon=True).start()
+
+    def _show_update(self, release: dict, announce: bool = True) -> None:
+        self._update_release = release
+        try:
+            self._update_btn.configure(text=t("update_available", fallback="⬆ Versión {version}",
+                                              version=release["version"]))
+            self._update_btn.pack(side="left", padx=(Spacing.MD, 0), pady=Spacing.SM)
+        except tk.TclError:
+            return
+        if announce:
+            self.log_message(t("update_log",
+                               fallback="Hay una versión nueva de WorkshopArt: {version} ({url})",
+                               version=release["version"], url=release["url"]))
+
+    def _open_update_page(self) -> None:
+        if self._update_release:
+            webbrowser.open(self._update_release["url"])
+
+    # ------------------------------------------------------------------
     # Cancel-button contract (used by ui.logic.system._run_cancellable)
     # ------------------------------------------------------------------
     def _on_cancel_processing(self) -> None:
@@ -300,7 +371,10 @@ class WorkshopArtGUI(GUIMethodsMixin):
                      for raw in files]
             self.update_queue.put((self._handle_drop, (paths,)))
 
-        windnd.hook_dropfiles(self.root, func=on_drop, force_unicode=True)
+        try:
+            windnd.hook_dropfiles(self.root, func=on_drop, force_unicode=True)
+        except Exception as e:  # drag & drop is a convenience: never block startup
+            self.log_message(f"Arrastrar y soltar no disponible: {e}", "WARNING")
 
     def _handle_drop(self, paths) -> None:
         """Load the first supported file of a drag & drop (main thread)."""

@@ -5,18 +5,23 @@ import zipfile
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-from app_paths import DATA_DIR
+from app_paths import DATA_DIR, make_temp_dir
+from downloads import download_file
 from gif_utils import MAX_GIF_FPS, format_fps
-from processing.common import logger, run_tool, tail
+from processing.common import CancelFn, logger, run_tool, tail
+from tools import safe_member_name
 
 # Two-pass palette: build one palette for the whole clip, then dither with it.
 # sierra2_4a is the best-looking error diffusion for gradients in animation.
 _PALETTE_FILTER = ("split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];"
                    "[b][p]paletteuse=dither=sierra2_4a")
 
-_GIFSICLE_URLS = (
-    "https://eternallybored.org/misc/gifsicle/releases/gifsicle-1.95-win64.zip",
-    "https://eternallybored.org/misc/gifsicle/releases/gifsicle-1.94-win64.zip",
+#: gifsicle builds for Windows, newest first, with the SHA-256 of each ZIP.
+_GIFSICLE_DOWNLOADS = (
+    ("https://eternallybored.org/misc/gifsicle/releases/gifsicle-1.95-win64.zip",
+     "7e47dd0bfd5ee47f911464c57faeed89a8709a7625dd1c449b16579889539ee8"),
+    ("https://eternallybored.org/misc/gifsicle/releases/gifsicle-1.94-win64.zip",
+     "b3e3a9e0c8ade061b5b2ef13cad3d4ad57466400552a78ed285ed0c3f97a5141"),
 )
 
 
@@ -42,7 +47,8 @@ class GifEncodeMixin:
     def convert_video_to_gif(self, video_path: Path, output_path: Path, fps: float = 24,
                              start_s: Optional[float] = None, end_s: Optional[float] = None,
                              size: Optional[Tuple[int, int]] = None,
-                             max_width: Optional[int] = None) -> Optional[Path]:
+                             max_width: Optional[int] = None,
+                             should_cancel: CancelFn = None) -> Optional[Path]:
         """Convert any FFmpeg-readable video (or image) to an animated GIF.
 
         Args:
@@ -51,6 +57,7 @@ class GifEncodeMixin:
             size: (w, h) to fill-and-crop to exactly; otherwise the aspect
                 ratio is kept and the width limited to ``max_width``
                 (default: the Steam profile width from config).
+            should_cancel: polled during the encode (InterruptedError).
 
         Returns the output path, or None on failure (details in the log).
         """
@@ -72,7 +79,11 @@ class GifEncodeMixin:
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         logger.info("Convirtiendo %s -> %s (%s fps)", video_path.name, output_path.name, format_fps(fps))
-        result = run_tool(cmd, timeout=900)
+        try:
+            result = run_tool(cmd, timeout=900, should_cancel=should_cancel)
+        except InterruptedError:
+            output_path.unlink(missing_ok=True)  # half-written GIF
+            raise
         if result.returncode != 0 or not output_path.exists():
             logger.error("Error convirtiendo video: %s", tail(result.stderr))
             return None
@@ -86,7 +97,8 @@ class GifEncodeMixin:
     def encode_frames_to_gif(self, frame_paths: Sequence[Path], output_path: Path,
                              fps: Optional[float] = None,
                              durations_ms: Optional[Sequence[int]] = None,
-                             max_width: Optional[int] = None) -> bool:
+                             max_width: Optional[int] = None,
+                             should_cancel: CancelFn = None) -> bool:
         """Encode image files (any names, same size) into one GIF with FFmpeg.
 
         Give either a constant ``fps`` or one duration per frame. Frame rates
@@ -126,11 +138,15 @@ class GifEncodeMixin:
                                "-f", "concat", "-safe", "0", "-i", list_file,
                                "-vf", ",".join(f for f in filters if f), "-fps_mode", "vfr",
                                "-final_delay", str(final_delay_cs),
-                               "-loop", "0", output_path], timeout=900)
+                               "-loop", "0", output_path], timeout=900,
+                              should_cancel=should_cancel)
             if result.returncode != 0 or not output_path.exists():
                 logger.error("Error creando GIF: %s", tail(result.stderr))
                 return False
             return True
+        except InterruptedError:
+            output_path.unlink(missing_ok=True)
+            raise
         except OSError as e:
             logger.error("Error creando GIF: %s", e)
             return False
@@ -139,7 +155,8 @@ class GifEncodeMixin:
                 list_file.unlink(missing_ok=True)
 
     def create_optimized_gif(self, frame_paths: List[Path], output_path: Path, fps: float,
-                             max_width: Optional[int] = None) -> bool:
+                             max_width: Optional[int] = None,
+                             should_cancel: CancelFn = None) -> bool:
         """Assemble processed frames (AI upscale, RIFE) into an intermediate GIF.
 
         The aspect ratio is kept; the width is limited to the Steam profile
@@ -151,7 +168,8 @@ class GifEncodeMixin:
             return False
         if max_width is None:
             max_width = int(self.config.get("steam_profile.width", 638))
-        if not self.encode_frames_to_gif(valid, output_path, fps=fps, max_width=max_width):
+        if not self.encode_frames_to_gif(valid, output_path, fps=fps, max_width=max_width,
+                                         should_cancel=should_cancel):
             return False
         self._try_gifsicle_optimize(output_path)
         logger.info("GIF creado: %s (%.2f MB)", output_path.name,
@@ -168,31 +186,27 @@ class GifEncodeMixin:
         dest = DATA_DIR / "gifsicle.exe"
         if dest.exists():
             return dest
-        import requests
-        for url in _GIFSICLE_URLS:
-            tmp = None
-            try:
-                resp = requests.get(url, stream=True, timeout=30)
-                resp.raise_for_status()
-                fd, name = tempfile.mkstemp(suffix=".zip")
-                tmp = Path(name)
-                with os.fdopen(fd, "wb") as f:
-                    for chunk in resp.iter_content(65536):
-                        f.write(chunk)
-                with zipfile.ZipFile(tmp) as zf:
-                    member = next((n for n in zf.namelist()
-                                   if n.lower().endswith("gifsicle.exe")), None)
-                    if member:
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        dest.write_bytes(zf.read(member))
-                if dest.exists():
-                    logger.info("gifsicle descargado: %s", dest)
-                    return dest
-            except Exception as e:  # network/zip errors: try the next mirror
-                logger.warning("No se pudo descargar gifsicle (%s): %s", url, e)
-            finally:
-                if tmp is not None:
-                    tmp.unlink(missing_ok=True)
+        work = make_temp_dir("wkart_gifsicle_")
+        try:
+            for url, sha256 in _GIFSICLE_DOWNLOADS:
+                try:
+                    archive = download_file(url, work / "gifsicle.zip", "gifsicle",
+                                            timeout=30, sha256=sha256)
+                    with zipfile.ZipFile(archive) as zf:
+                        member = next((n for n in zf.namelist()
+                                       if (safe_member_name(n) or "").lower() == "gifsicle.exe"),
+                                      None)
+                        if member:
+                            dest.parent.mkdir(parents=True, exist_ok=True)
+                            dest.write_bytes(zf.read(member))
+                    if dest.exists():
+                        logger.info("gifsicle descargado: %s", dest)
+                        return dest
+                except Exception as e:  # network/zip/checksum errors: try the next build
+                    logger.warning("No se pudo descargar gifsicle (%s): %s", url, e)
+        finally:
+            import shutil
+            shutil.rmtree(work, ignore_errors=True)
         self._gifsicle_unavailable = True
         return None
 

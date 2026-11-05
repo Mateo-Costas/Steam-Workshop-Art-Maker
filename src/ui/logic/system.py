@@ -304,13 +304,28 @@ class SystemMixin:
         box.pack(fill="both", expand=True, padx=20, pady=(20, 10))
         box.insert("1.0", t("help_text", fallback="", version=APP_VERSION))
         box.configure(state="disabled")
-        ctk.CTkButton(window, text=t("close_btn", fallback="Cerrar"), command=window.destroy,
+
+        bottom = ctk.CTkFrame(window, fg_color="transparent")
+        bottom.pack(fill="x", padx=20, pady=(0, 15))
+        check_var = ctk.BooleanVar(value=bool(self.config.get("updates.check", True)))
+
+        def toggle_updates():
+            self.config.set("updates.check", bool(check_var.get()))
+            if check_var.get():
+                self._check_for_updates(force=True)
+
+        ctk.CTkCheckBox(bottom, text=t("check_updates", fallback="Avisar cuando haya una versión nueva"),
+                        variable=check_var, command=toggle_updates, font=theme.font("SMALL"),
+                        checkbox_width=18, checkbox_height=18).pack(side="left")
+        ctk.CTkButton(bottom, text=t("close_btn", fallback="Cerrar"), command=window.destroy,
                       fg_color=Colors.ACCENT, hover_color=Colors.ACCENT_DARK,
-                      height=34, corner_radius=8).pack(pady=(0, 15))
+                      height=34, corner_radius=8).pack(side="right")
 
     def on_closing(self):
-        """Stop the preview animation, remove temporary files and close."""
+        """Save pending settings, stop the preview animation, remove temporary files and close."""
         try:
+            if getattr(self, "_colors_save_id", None):
+                self._save_colors()
             self._stop_gif_animation()
             shutil.rmtree(TEMP_DIR, ignore_errors=True)
         except Exception:

@@ -8,7 +8,7 @@ from typing import Callable, List, Optional, Tuple
 from PIL import Image
 
 from gif_utils import format_fps, playback_fps
-from processing.common import _NO_WINDOW_FLAGS, logger, run_tool, tail
+from processing.common import _NO_WINDOW_FLAGS, CancelFn, check_cancel, logger, run_tool, tail
 from video_utils import is_video, probe_video
 
 # Model table of the optional realesrgan-ncnn-py bindings (package model ids).
@@ -24,7 +24,7 @@ _BINDING_MODEL_IDS = {
 
 class FramesMixin:
     def extract_gif_frames(self, source: Path, output_dir: Path, max_fps: float = 50.0,
-                           max_width: Optional[int] = None
+                           max_width: Optional[int] = None, should_cancel: CancelFn = None
                            ) -> Tuple[Optional[List[Path]], Optional[float]]:
         """Extract the frames of a GIF (or video) as PNGs at a constant rate.
 
@@ -47,7 +47,8 @@ class FramesMixin:
         if max_width:
             filters += f",scale='min(iw,{int(max_width)})':-2:flags=lanczos"
         result = run_tool([self.ffmpeg_path, "-hide_banner", "-y", "-i", source,
-                           "-vf", filters, output_dir / "frame_%06d.png"], timeout=900)
+                           "-vf", filters, output_dir / "frame_%06d.png"], timeout=900,
+                          should_cancel=should_cancel)
         frames = sorted(output_dir.glob("frame_*.png"))
         if result.returncode != 0 or not frames:
             logger.error("Error extrayendo frames: %s", tail(result.stderr))
@@ -57,12 +58,14 @@ class FramesMixin:
     def upscale_frames_batch(self, input_dir: Path, output_dir: Path,
                              model_name: str = "realesrgan-x4plus",
                              use_gpu: bool = True,
-                             progress_callback: Optional[Callable] = None) -> Optional[List[Path]]:
+                             progress_callback: Optional[Callable] = None,
+                             should_cancel: CancelFn = None) -> Optional[List[Path]]:
         """Upscale every PNG in input_dir with Real-ESRGAN or Real-CUGAN.
 
         Uses the realesrgan-ncnn-py bindings when installed and the model is
         one of theirs, otherwise the ncnn-vulkan command-line tool. A GPU
         failure is retried once on the CPU. Returns the sorted output frames.
+        Raises InterruptedError when ``should_cancel()`` becomes true.
         """
         output_dir.mkdir(parents=True, exist_ok=True)
         input_frames = sorted(input_dir.glob("*.png"))
@@ -77,7 +80,7 @@ class FramesMixin:
 
         if engine == "realesrgan" and model in _BINDING_MODEL_IDS:
             upscaled = self._upscale_with_bindings(input_frames, output_dir, model,
-                                                   use_gpu, progress_callback)
+                                                   use_gpu, progress_callback, should_cancel)
             if upscaled:
                 return upscaled
 
@@ -100,7 +103,7 @@ class FramesMixin:
                "-g", "0" if use_gpu else "-1"]
 
         ok, stderr = self._run_upscaler(cmd, len(input_frames), output_dir, use_gpu,
-                                        progress_callback)
+                                        progress_callback, should_cancel)
         upscaled = sorted(output_dir.glob("*.png"))
         if ok and upscaled:
             _progress(progress_callback, f"IA completada: {len(upscaled)} frames", 80)
@@ -111,11 +114,13 @@ class FramesMixin:
             for leftover in upscaled:
                 leftover.unlink(missing_ok=True)
             return self.upscale_frames_batch(input_dir, output_dir, model, use_gpu=False,
-                                             progress_callback=progress_callback)
+                                             progress_callback=progress_callback,
+                                             should_cancel=should_cancel)
         _progress(progress_callback, f"Error en el procesamiento con IA: {tail(stderr, 200)}", 0)
         return None
 
-    def _upscale_with_bindings(self, frames, output_dir, model, use_gpu, progress_callback):
+    def _upscale_with_bindings(self, frames, output_dir, model, use_gpu, progress_callback,
+                               should_cancel=None):
         try:
             from realesrgan_ncnn_py import Realesrgan
         except ImportError:
@@ -124,23 +129,28 @@ class FramesMixin:
             upscaler = Realesrgan(gpuid=0 if use_gpu else -1, model=_BINDING_MODEL_IDS[model])
             out = []
             for index, frame in enumerate(frames, 1):
-                with Image.open(frame) as image:
+                check_cancel(should_cancel)
+                with Image.open(frame, formats=("PNG",)) as image:
                     upscaler.process_pil(image).save(output_dir / frame.name)
                 out.append(output_dir / frame.name)
                 _progress(progress_callback, f"IA: frame {index}/{len(frames)}",
                           20 + int(index / len(frames) * 60))
             logger.info("Upscale con realesrgan-ncnn-py: %d frames", len(out))
             return out
+        except InterruptedError:
+            raise
         except Exception as e:  # bindings failure: fall back to the CLI
             logger.warning("realesrgan-ncnn-py fallo (%s), usando el ejecutable", e)
             return None
 
-    def _run_upscaler(self, cmd, total, output_dir, use_gpu, progress_callback):
+    def _run_upscaler(self, cmd, total, output_dir, use_gpu, progress_callback,
+                      should_cancel=None):
         """Run an ncnn-vulkan upscaler, reporting progress by counting output files."""
         mode = "GPU" if use_gpu else "CPU"
         _progress(progress_callback, f"Iniciando IA con {mode}...", 20)
         logger.info("Ejecutando: %s", " ".join(str(c) for c in cmd))
-        process = subprocess.Popen([str(c) for c in cmd], stdout=subprocess.PIPE,
+        process = subprocess.Popen([str(c) for c in cmd], stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True, encoding="utf-8",
                                    errors="replace", cwd=str(Path(cmd[0]).parent),
                                    **_NO_WINDOW_FLAGS)
@@ -163,13 +173,20 @@ class FramesMixin:
         watcher.start()
         # Generous timeout: 10 min base + 5 s per frame (CPU mode is slow).
         timeout = max(600, 300 + 5 * total)
+        deadline = time.monotonic() + timeout
         try:
-            _, stderr = process.communicate(timeout=timeout)
-            return process.returncode == 0, stderr or ""
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.communicate()
-            return False, f"timeout tras {timeout} s"
+            while True:
+                try:
+                    _, stderr = process.communicate(timeout=0.5)
+                    return process.returncode == 0, stderr or ""
+                except subprocess.TimeoutExpired:
+                    cancelled = bool(should_cancel and should_cancel())
+                    if cancelled or time.monotonic() >= deadline:
+                        process.kill()
+                        process.communicate()
+                        if cancelled:
+                            raise InterruptedError("Cancelado por el usuario")
+                        return False, f"timeout tras {timeout} s"
         finally:
             stop.set()
 

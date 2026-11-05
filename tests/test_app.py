@@ -24,9 +24,11 @@ def _used_text_keys():
             if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "t"
                     and node.args and isinstance(node.args[0], ast.Constant)):
                 keys.add(node.args[0].value)
+    from processing.enhance import COLOR_PRESETS
     presets = processing.SteamProcessor.SHOWCASE_PRESETS
     keys |= {f"preset_{p}" for p in presets} | {f"note_{p}" for p in presets}
     keys |= {f"model_desc_{m}" for m in ModelManager.MODELS_INFO}
+    keys |= {f"color_style_{c}" for c in COLOR_PRESETS} | {f"tip_color_style_{c}" for c in COLOR_PRESETS}
     return keys
 
 
@@ -86,6 +88,50 @@ def test_old_config_keys_still_load(tmp_path):
 def test_relative_paths_resolve_from_the_app_folder():
     from app_paths import APP_DIR, resolve
     assert resolve("SteamWorkshopAppData/models") == APP_DIR / "SteamWorkshopAppData" / "models"
+
+
+def test_config_writes_from_several_threads_stay_valid(tmp_path):
+    import threading
+    from config import Config
+    config = Config(str(tmp_path / "config.json"))
+
+    def writer(n):
+        for i in range(30):
+            config.set(f"ui.thread_{n}", i)
+
+    threads = [threading.Thread(target=writer, args=(n,)) for n in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    saved = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert all(saved["ui"][f"thread_{n}"] == 29 for n in range(4))
+
+
+# ---------------------------------------------------------------------------
+# New-version notice
+# ---------------------------------------------------------------------------
+def test_version_comparison():
+    from updates import is_newer, parse_version
+    assert parse_version("v2.10") == (2, 10) and parse_version("WorkshopArt 2.1.0") == (2, 1)
+    assert is_newer("2.10", "2.9") and is_newer("v3", "2.9.9") and is_newer("2.2.1", "2.2")
+    assert not is_newer("v2.2", "2.2") and not is_newer("2.2.0", "2.2")
+    assert not is_newer("2.1", "2.2") and not is_newer("", "2.2") and not is_newer("beta", "2.2")
+
+
+def test_update_check_is_cached_and_can_be_turned_off(tmp_path, monkeypatch):
+    import updates
+    from config import Config
+    calls = []
+    release = {"version": "9.9", "url": "https://evil.example/download"}
+    monkeypatch.setattr(updates, "latest_release", lambda: calls.append(1) or release)
+    config = Config(str(tmp_path / "config.json"))
+    found = updates.check_for_update(config, "2.2")
+    assert found == {"version": "9.9", "url": updates.RELEASES_PAGE}  # foreign links dropped
+    assert updates.check_for_update(config, "2.2") == found and len(calls) == 1  # once a day
+    assert updates.check_for_update(config, "9.9") is None  # already up to date
+    config.set("updates.check", False)
+    assert updates.check_for_update(config, "2.2", force=True) is None and len(calls) == 1
 
 
 # ---------------------------------------------------------------------------
