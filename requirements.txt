@@ -1,17 +1,23 @@
-# WorkshopArt - dependencias (Python 3.10 o superior, Windows 10/11)
+# WorkshopArt - dependencias (Python 3.11 o superior, Windows 10/11)
 #
 #   pip install -r requirements.txt
 #
 # FFmpeg, gifski, gifsicle, Real-ESRGAN, Real-CUGAN y RIFE no son paquetes de
-# Python: la aplicación los descarga sola la primera vez que se abre.
+# Python: la aplicación los descarga sola (y verifica su SHA-256).
+#
+# Los mínimos son las primeras versiones sin vulnerabilidades conocidas:
+#   pillow 13.0.0          corrige más de 40 CVE de 2026 (desbordamientos de memoria,
+#                          bombas de descompresión y bloqueos al abrir imágenes)
+#   opencv-python 4.8.1.78 trae un libwebp sin la CVE-2023-4863
+#   requests 2.33.0        corrige CVE-2024-35195, CVE-2024-47081 y CVE-2026-25645
 
-pillow>=12.3.0,<13         # imágenes y GIF (12.3.0 corrige CVE-2026-55379)
+pillow>=13.0.0,<14             # imágenes y GIF (Pillow 13 requiere Python 3.11+)
 numpy>=1.24,<3
-opencv-python>=4.8,<6      # lectura de vídeo y análisis del reporte de calidad
-customtkinter>=5.2,<6      # interfaz
-windnd>=1.0.7,<2           # arrastrar y soltar archivos en Windows
-requests>=2.31,<3          # descarga de herramientas y modelos
-matplotlib>=3.7,<4         # gráficos del reporte de calidad
+opencv-python>=4.8.1.78,<6     # lectura de vídeo y análisis del reporte de calidad
+customtkinter>=5.2,<6          # interfaz
+windnd>=1.0.7,<2               # arrastrar y soltar archivos en Windows
+requests>=2.33.0,<3            # descarga de herramientas y modelos
+matplotlib>=3.7,<4             # gráficos del reporte de calidad
 
 # Opcionales
 #   Subida automática a Steam (Upload Tool):
