@@ -1,0 +1,65 @@
+# Runs on every pull request and every push to main: lint, the pytest suite,
+# the real-window UI check (under a virtual display) and a dependency audit.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Lint, tests and UI check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Install FFmpeg and a virtual display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg xvfb libgl1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Lint (pyflakes)
+        run: python -m pyflakes main.py upload_tool.py src tests
+
+      - name: Tests (pytest)
+        run: xvfb-run -a python -m pytest -q tests
+
+      - name: Real window check
+        run: xvfb-run -a -s "-screen 0 1600x1000x24" python tests/ui_check.py
+
+  audit:
+    name: Known vulnerabilities (pip-audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Audit requirements.txt
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          pip-audit -r requirements.txt

@@ -7,6 +7,7 @@
 ![AI](https://img.shields.io/badge/AI-Real--ESRGAN%20%7C%20Real--CUGAN%20%7C%20RIFE-orange)
 ![Version](https://img.shields.io/badge/Version-2.2-blue)
 ![Lang](https://img.shields.io/badge/Lang-ES%20%7C%20EN%20%7C%20PT--BR-green)
+[![Tests](https://github.com/Mateo-Costas/Steam-Workshop-Art-Maker/actions/workflows/tests.yml/badge.svg)](https://github.com/Mateo-Costas/Steam-Workshop-Art-Maker/actions/workflows/tests.yml)
 
 **Animated GIF artwork for every Steam profile showcase.**
 
@@ -239,6 +240,8 @@ python tests/ui_check.py          # drives the real window through the whole wor
 pip-audit -r requirements.txt     # known vulnerabilities in the dependencies
 pyinstaller WorkshopArt.spec      # -> dist/WorkshopArt.exe
 ```
+
+GitHub Actions runs the lint, the tests, the UI check and pip-audit on every pull request (`.github/workflows/tests.yml`).
 
 ---
 

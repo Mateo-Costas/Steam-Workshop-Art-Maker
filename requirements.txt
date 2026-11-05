@@ -15,7 +15,7 @@ pillow>=13.0.0,<14             # imágenes y GIF (Pillow 13 requiere Python 3.11
 numpy>=1.24,<3
 opencv-python>=4.8.1.78,<6     # lectura de vídeo y análisis del reporte de calidad
 customtkinter>=5.2,<6          # interfaz
-windnd>=1.0.7,<2               # arrastrar y soltar archivos en Windows
+windnd>=1.0.7,<2; sys_platform == "win32"   # arrastrar y soltar (solo Windows)
 requests>=2.33.0,<3            # descarga de herramientas y modelos
 matplotlib>=3.7,<4             # gráficos del reporte de calidad
 

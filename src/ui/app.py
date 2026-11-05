@@ -12,6 +12,7 @@ layout and wiring only. Worker threads never touch widgets directly - they
 enqueue callables on self.update_queue (drained by update_ui_loop).
 """
 import queue
+import sys
 import threading
 import webbrowser
 from pathlib import Path
@@ -35,11 +36,14 @@ from ui.steps import FileStep, FragmentStep, ProcessStep, UploadStep
 from ui.theme import PALETTE, Colors, Spacing
 from ui.widgets import StatusBar, Stepper, attach_tooltip, darken
 
-# windnd enables native Windows drag-and-drop; gracefully absent elsewhere.
-try:
-    import windnd
-except ImportError:
-    windnd = None
+# windnd enables native Windows drag-and-drop; it only works on Windows (it
+# calls ctypes.windll), so it is not even imported elsewhere.
+windnd = None
+if sys.platform == "win32":
+    try:
+        import windnd
+    except ImportError:
+        pass
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -367,7 +371,10 @@ class WorkshopArtGUI(GUIMethodsMixin):
                      for raw in files]
             self.update_queue.put((self._handle_drop, (paths,)))
 
-        windnd.hook_dropfiles(self.root, func=on_drop, force_unicode=True)
+        try:
+            windnd.hook_dropfiles(self.root, func=on_drop, force_unicode=True)
+        except Exception as e:  # drag & drop is a convenience: never block startup
+            self.log_message(f"Arrastrar y soltar no disponible: {e}", "WARNING")
 
     def _handle_drop(self, paths) -> None:
         """Load the first supported file of a drag & drop (main thread)."""
